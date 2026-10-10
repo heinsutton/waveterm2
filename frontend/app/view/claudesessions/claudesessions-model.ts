@@ -182,13 +182,16 @@ export class ClaudeSessionsViewModel implements ViewModel {
         return available;
     }
 
-    // Resuming asks, in the launch modal, whether to skip permissions.
-    resumeSession(s: ClaudeSession) {
+    // Resuming asks, in the launch modal, whether to skip permissions. quick (Shift+Enter) skips
+    // the modal and resumes in normal mode, never with skipped permissions.
+    resumeSession(s: ClaudeSession, quick = false) {
         const state = sessionState(s);
         if (state === "external") {
             this.showMessage("Already running outside Bifrost, so it can't be resumed here", true);
         } else if (state !== "offline") {
             this.showMessage("Already running in Bifrost", true);
+        } else if (quick) {
+            fireAndForget(() => this.launch({ harness: s.harness, sessionid: s.sessionid }, "Resume"));
         } else {
             globalStore.set(this.launchAtom, {
                 cwd: s.cwd,
@@ -474,12 +477,12 @@ export class ClaudeSessionsViewModel implements ViewModel {
         return rows[indexOfKey(rows, this.currentKey())];
     }
 
-    activate() {
+    activate(quick = false) {
         const row = this.selectedRow();
         if (row?.kind === "group") {
             this.toggleGroup(row.cwd);
         } else if (row?.kind === "session") {
-            this.resumeSession(row.session);
+            this.resumeSession(row.session, quick);
         }
     }
 
@@ -573,7 +576,7 @@ export class ClaudeSessionsViewModel implements ViewModel {
                 return true;
             case "Enter":
             case " ":
-                this.activate();
+                this.activate(e.key === "Enter" && e.shift);
                 return true;
             case "Escape":
                 if (globalStore.get(this.filterAtom) !== "") {

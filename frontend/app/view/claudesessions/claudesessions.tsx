@@ -231,6 +231,7 @@ const HelpKeys: [string, string][] = [
     ["PgUp PgDn", "move a page"],
     ["Home End  g G", "first / last"],
     ["Enter  Space", "folder: open / close · session: resume it (a dialog offers skip permissions)"],
+    ["Shift+Enter", "resume the selected session right away in normal mode (no dialog)"],
     ["n", "new session in the selected folder (pick tool, name, skip permissions, then create)"],
     ["e", "edit the description of the selected session"],
     ["p", "open / close the recent prompts box"],
