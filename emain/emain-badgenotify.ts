@@ -82,9 +82,10 @@ async function notifyForBadge(oref: string, badge: Badge) {
     }
     const tabName = tab.name || "Tab";
     const phrase = KindPhrases[kind];
+    const paneLabel = context.paneName != null ? `${context.paneName} - ${tabName}` : null;
     const notification = new Notification({
-        title: context.paneName ?? tabName,
-        body: context.paneName != null ? `${tabName}: ${phrase}` : `${tabName} ${phrase}`,
+        title: paneLabel ?? tabName,
+        body: paneLabel != null ? `${paneLabel}: ${phrase}` : `${tabName} ${phrase}`,
     });
     liveNotifications.add(notification);
     const release = () => liveNotifications.delete(notification);
