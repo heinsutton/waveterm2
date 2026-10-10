@@ -34,9 +34,10 @@ const StateGlyph: Record<SessionState, StateStyle> = {
     offline: { glyph: "·", className: "text-muted", label: "offline", word: "offline" },
 };
 
-// Which tool a session belongs to; the pane lists Claude Code only for now, others plug in here.
+// Which tool a session belongs to; new harnesses plug in here.
 const HarnessStyle: { [harness: string]: { label: string; className: string } } = {
     claude: { label: "claude", className: "text-[#d97757]" },
+    agy: { label: "agy", className: "text-[#4285f4]" },
 };
 
 function harnessStyle(harness: string): { label: string; className: string } {

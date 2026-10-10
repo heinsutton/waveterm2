@@ -30,6 +30,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
 	"github.com/wavetermdev/waveterm/pkg/buildercontroller"
 	"github.com/wavetermdev/waveterm/pkg/claudesessions"
+	"github.com/wavetermdev/waveterm/pkg/claudesessions/agy"
 	"github.com/wavetermdev/waveterm/pkg/filebackup"
 	"github.com/wavetermdev/waveterm/pkg/filestore"
 	"github.com/wavetermdev/waveterm/pkg/genconn"
@@ -71,7 +72,9 @@ var WshServerImpl = WshServer{}
 
 var (
 	claudeSessionsProvider     *claudesessions.Provider
+	agySessionsProvider        *agy.Provider
 	claudeSessionsProviderOnce sync.Once
+	agySessionsProviderOnce    sync.Once
 )
 
 func (ws *WshServer) GetJwtPublicKeyCommand(ctx context.Context) (string, error) {
@@ -1498,7 +1501,10 @@ func getClaudeSessionsProvider() *claudesessions.Provider {
 
 // getSessionHarnesses lists every harness the sessions pane knows about.
 func getSessionHarnesses() []claudesessions.Harness {
-	return []claudesessions.Harness{getClaudeSessionsProvider()}
+	agySessionsProviderOnce.Do(func() {
+		agySessionsProvider = agy.MakeProvider(filepath.Join(wavebase.GetHomeDir(), ".gemini", "antigravity-cli"))
+	})
+	return []claudesessions.Harness{getClaudeSessionsProvider(), agySessionsProvider}
 }
 
 func (ws *WshServer) ClaudeSessionsPrepareCommand(ctx context.Context, data wshrpc.CommandClaudeSessionsPrepareData) (*claudesessions.ClaudeLaunch, error) {
