@@ -42,9 +42,9 @@ const HarnessStyle: { [harness: string]: HarnessLook } = {
     claude: {
         label: "claude",
         className: "text-[#d97757]",
-        rowClassName: "bg-[#d97757]/[0.07] hover:bg-[#d97757]/[0.14]",
+        rowClassName: "bg-[#d97757]/[0.2] hover:bg-[#d97757]/[0.3]",
     },
-    agy: { label: "agy", className: "text-[#4285f4]", rowClassName: "bg-[#4285f4]/[0.08] hover:bg-[#4285f4]/[0.15]" },
+    agy: { label: "agy", className: "text-[#4285f4]", rowClassName: "bg-[#4285f4]/[0.22] hover:bg-[#4285f4]/[0.32]" },
 };
 
 function harnessStyle(harness: string): HarnessLook {
