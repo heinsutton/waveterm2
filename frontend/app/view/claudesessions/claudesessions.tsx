@@ -35,8 +35,8 @@ const StateGlyph: Record<SessionState, StateStyle> = {
 };
 
 // Which tool a session belongs to; new harnesses plug in here.
-// the selected row must beat the harness tints: stronger fill, accent bar and an inset outline
-const SelectedRowClass = "bg-accent/35 border-accent ring-1 ring-inset ring-accent";
+// the selected row is marked by a border only, so its text keeps the contrast of an unselected row
+const SelectedRowClass = "border-accent ring-2 ring-inset ring-accent";
 
 type HarnessLook = { label: string; className: string; rowClassName: string };
 
@@ -175,7 +175,7 @@ const SessionLine = React.memo(({ row, selected, last, now, description, model }
             data-rowkey={row.key}
             className={cn(
                 "flex items-center gap-2 px-2 cursor-pointer border-l-2 whitespace-nowrap",
-                selected ? SelectedRowClass : cn("border-transparent", harness.rowClassName),
+                cn(selected ? SelectedRowClass : "border-transparent", harness.rowClassName),
                 hidden && "opacity-50"
             )}
             style={{ height: RowHeight }}
