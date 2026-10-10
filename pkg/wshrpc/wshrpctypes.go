@@ -858,6 +858,7 @@ type CommandClaudeSessionsPrepareData struct {
 	SessionId       string `json:"sessionid,omitempty"`
 	Cwd             string `json:"cwd,omitempty"`
 	SkipPermissions bool   `json:"skippermissions,omitempty"` // adds --dangerously-skip-permissions
+	Name            string `json:"name,omitempty"`            // new session only; ignored by tools that cannot be named at startup
 }
 
 type CommandClaudeSessionsDescriptionData struct {

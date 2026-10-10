@@ -342,8 +342,9 @@ func (p *Provider) PrepareResume(sessionId string, skipPermissions bool) (*cs.Cl
 	return &cs.ClaudeLaunch{Cmd: bin, Args: cs.LaunchArgs([]string{"--conversation", sessionId}, skipPermissions), Cwd: cwd}, nil
 }
 
-// PrepareNew returns the command that starts a fresh conversation in a folder.
-func (p *Provider) PrepareNew(cwd string, skipPermissions bool) (*cs.ClaudeLaunch, error) {
+// PrepareNew returns the command that starts a fresh conversation in a folder. agy cannot be named
+// at startup, so name is ignored.
+func (p *Provider) PrepareNew(cwd string, skipPermissions bool, name string) (*cs.ClaudeLaunch, error) {
 	clean, err := cs.CheckFolder(cwd)
 	if err != nil {
 		return nil, err

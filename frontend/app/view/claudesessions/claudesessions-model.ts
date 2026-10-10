@@ -18,7 +18,7 @@ import {
     harnessChoiceLabel,
     indexOfKey,
     isHidden,
-    launchKeyAction,
+    LaunchChoice,
     LaunchPrompt,
     moveSelection,
     Row,
@@ -182,44 +182,30 @@ export class ClaudeSessionsViewModel implements ViewModel {
         return available;
     }
 
-    // skipPermissions undefined: ask the user (normal or skip) in the launch bar first; a boolean
-    // launches straight away (the context menu has an entry for each).
-    resumeSession(s: ClaudeSession, skipPermissions?: boolean) {
+    // Resuming asks, in the launch modal, whether to skip permissions.
+    resumeSession(s: ClaudeSession) {
         const state = sessionState(s);
         if (state === "external") {
             this.showMessage("Already running outside Bifrost, so it can't be resumed here", true);
         } else if (state !== "offline") {
             this.showMessage("Already running in Bifrost", true);
-        } else if (skipPermissions === undefined) {
+        } else {
             globalStore.set(this.launchAtom, {
                 cwd: s.cwd,
                 sessionId: s.sessionid,
                 label: displayName(s),
                 harness: s.harness,
             });
-        } else {
-            fireAndForget(() =>
-                this.launch({ harness: s.harness, sessionid: s.sessionid, skippermissions: skipPermissions }, "Resume")
-            );
         }
     }
 
-    // harness undefined: ask which tool first, then normal or skip permissions.
-    newSessionIn(cwd: string, harness?: string, skipPermissions?: boolean) {
+    // Opens the launch modal: tool, name and skip-permissions are all picked there, then created.
+    newSessionIn(cwd: string) {
         if (cwd === "") {
             this.showMessage("This session has no known folder", true);
             return;
         }
-        if (harness === undefined) {
-            globalStore.set(this.launchAtom, { cwd, sessionId: null, label: cwd, harness: null });
-        } else {
-            fireAndForget(() =>
-                this.launch(
-                    { harness, cwd, skippermissions: skipPermissions === true },
-                    `New ${harnessChoiceLabel(harness)} session`
-                )
-            );
-        }
+        globalStore.set(this.launchAtom, { cwd, sessionId: null, label: cwd, harness: null });
     }
 
     cancelLaunch() {
@@ -227,17 +213,9 @@ export class ClaudeSessionsViewModel implements ViewModel {
         this.giveFocus();
     }
 
-    chooseLaunchTool(harness: string) {
+    confirmLaunch(choice: LaunchChoice) {
         const prompt = globalStore.get(this.launchAtom);
-        if (prompt != null && this.availableHarnesses()[harness]) {
-            globalStore.set(this.launchAtom, { ...prompt, harness });
-        }
-        this.giveFocus();
-    }
-
-    confirmLaunch(skipPermissions: boolean) {
-        const prompt = globalStore.get(this.launchAtom);
-        if (prompt?.harness == null) {
+        if (prompt == null) {
             return;
         }
         globalStore.set(this.launchAtom, null);
@@ -245,12 +223,22 @@ export class ClaudeSessionsViewModel implements ViewModel {
         if (prompt.sessionId != null) {
             fireAndForget(() =>
                 this.launch(
-                    { harness: prompt.harness, sessionid: prompt.sessionId, skippermissions: skipPermissions },
+                    { harness: prompt.harness, sessionid: prompt.sessionId, skippermissions: choice.skipPermissions },
                     "Resume"
                 )
             );
         } else {
-            this.newSessionIn(prompt.cwd, prompt.harness, skipPermissions);
+            fireAndForget(() =>
+                this.launch(
+                    {
+                        harness: choice.harness,
+                        cwd: prompt.cwd,
+                        skippermissions: choice.skipPermissions,
+                        name: choice.name,
+                    },
+                    `New ${harnessChoiceLabel(choice.harness)} session`
+                )
+            );
         }
     }
 
@@ -548,17 +536,8 @@ export class ClaudeSessionsViewModel implements ViewModel {
             }
             return false;
         }
-        const launchPrompt = globalStore.get(this.launchAtom);
-        if (launchPrompt != null) {
-            const action = launchKeyAction(launchPrompt, e.key, this.availableHarnesses());
-            if (action.type === "cancel") {
-                this.cancelLaunch();
-            } else if (action.type === "tool") {
-                this.chooseLaunchTool(action.harness);
-            } else if (action.type === "launch") {
-                this.confirmLaunch(action.skipPermissions);
-            }
-            return true;
+        if (globalStore.get(this.launchAtom) != null) {
+            return false; // the launch modal handles its own keys
         }
         const rows = globalStore.get(this.rowsAtom);
         switch (e.key) {

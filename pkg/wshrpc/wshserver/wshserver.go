@@ -1519,7 +1519,7 @@ func (ws *WshServer) ClaudeSessionsPrepareCommand(ctx context.Context, data wshr
 	if err != nil {
 		return nil, err
 	}
-	return harness.PrepareNew(cwd, data.SkipPermissions)
+	return harness.PrepareNew(cwd, data.SkipPermissions, data.Name)
 }
 
 func (ws *WshServer) ClaudeSessionsAddFolderCommand(ctx context.Context, data wshrpc.CommandClaudeSessionsFolderData) (string, error) {

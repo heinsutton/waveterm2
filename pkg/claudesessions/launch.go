@@ -47,15 +47,24 @@ func (p *Provider) PrepareResume(sessionId string, skipPermissions bool) (*Claud
 	return &ClaudeLaunch{Cmd: bin, Args: LaunchArgs([]string{"-r", sessionId}, skipPermissions), Cwd: cwd}, nil
 }
 
-// PrepareNew returns the command that starts a fresh session in a folder.
-func (p *Provider) PrepareNew(cwd string, skipPermissions bool) (*ClaudeLaunch, error) {
+// PrepareNew returns the command that starts a fresh session in a folder, named when name is set
+// (claude --name).
+func (p *Provider) PrepareNew(cwd string, skipPermissions bool, name string) (*ClaudeLaunch, error) {
 	clean, err := CheckFolder(cwd)
 	if err != nil {
 		return nil, err
+	}
+	name, err = CleanLaunchName(name)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{}
+	if name != "" {
+		args = append(args, "--name="+name)
 	}
 	bin, err := p.claudePath()
 	if err != nil {
 		return nil, err
 	}
-	return &ClaudeLaunch{Cmd: bin, Args: LaunchArgs([]string{}, skipPermissions), Cwd: clean}, nil
+	return &ClaudeLaunch{Cmd: bin, Args: LaunchArgs(args, skipPermissions), Cwd: clean}, nil
 }

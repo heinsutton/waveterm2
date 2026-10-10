@@ -286,15 +286,18 @@ func TestPrepareResumeRefusesRunningAndMissingFolder(t *testing.T) {
 
 func TestPrepareNew(t *testing.T) {
 	p, real := launchProvider(t, nil)
-	got, err := p.PrepareNew(real, false)
+	got, err := p.PrepareNew(real, false, "")
 	if err != nil || got.Cwd != real || len(got.Args) != 0 {
 		t.Fatalf("new: %+v %v", got, err)
 	}
-	if skipped, err := p.PrepareNew(real, true); err != nil || len(skipped.Args) != 1 || skipped.Args[0] != cs.SkipPermissionsFlag {
+	if skipped, err := p.PrepareNew(real, true, ""); err != nil || len(skipped.Args) != 1 || skipped.Args[0] != cs.SkipPermissionsFlag {
 		t.Fatalf("new with skip permissions: %+v %v", skipped, err)
 	}
+	if named, err := p.PrepareNew(real, false, "ignored"); err != nil || len(named.Args) != 0 {
+		t.Fatalf("agy cannot be named at startup, the name must be ignored: %+v %v", named, err)
+	}
 	for _, bad := range []string{"", "relative", filepath.Join(real, "missing")} {
-		if _, err := p.PrepareNew(bad, false); err == nil {
+		if _, err := p.PrepareNew(bad, false, ""); err == nil {
 			t.Fatalf("%q must be refused", bad)
 		}
 	}

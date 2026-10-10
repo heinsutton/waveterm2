@@ -272,15 +272,25 @@ func TestPrepareNew(t *testing.T) {
 	p := fixture(t)
 	p.lookPath = func(string) (string, error) { return "/usr/bin/claude", nil }
 	dir := t.TempDir()
-	got, err := p.PrepareNew(dir, false)
+	got, err := p.PrepareNew(dir, false, "")
 	if err != nil || got.Cwd != dir || len(got.Args) != 0 {
 		t.Errorf("new: %+v %v", got, err)
 	}
-	if skipped, err := p.PrepareNew(dir, true); err != nil || len(skipped.Args) != 1 || skipped.Args[0] != SkipPermissionsFlag {
+	if skipped, err := p.PrepareNew(dir, true, ""); err != nil || len(skipped.Args) != 1 || skipped.Args[0] != SkipPermissionsFlag {
 		t.Errorf("new with skip permissions: %+v %v", skipped, err)
 	}
+	named, err := p.PrepareNew(dir, true, "  my work  ")
+	if err != nil || strings.Join(named.Args, " ") != "--name=my work "+SkipPermissionsFlag {
+		t.Errorf("new with name: %+v %v", named, err)
+	}
+	if _, err := p.PrepareNew(dir, false, "bad\x07name"); err == nil {
+		t.Errorf("control characters in the name must be refused")
+	}
+	if _, err := p.PrepareNew(dir, false, strings.Repeat("x", 201)); err == nil {
+		t.Errorf("a very long name must be refused")
+	}
 	for _, bad := range []string{"", "relative/dir", filepath.Join(dir, "missing")} {
-		if _, err := p.PrepareNew(bad, false); err == nil {
+		if _, err := p.PrepareNew(bad, false, ""); err == nil {
 			t.Errorf("%q must be refused", bad)
 		}
 	}
@@ -443,7 +453,7 @@ type fakeHarness struct {
 func (f *fakeHarness) Available() bool           { return f.name != "missing" }
 func (f *fakeHarness) Name() string              { return f.name }
 func (f *fakeHarness) Discover() []ClaudeSession { return f.sessions }
-func (f *fakeHarness) PrepareNew(cwd string, skip bool) (*ClaudeLaunch, error) {
+func (f *fakeHarness) PrepareNew(cwd string, skip bool, name string) (*ClaudeLaunch, error) {
 	return &ClaudeLaunch{Cmd: f.name, Cwd: cwd}, nil
 }
 func (f *fakeHarness) PrepareResume(id string, skip bool) (*ClaudeLaunch, error) {

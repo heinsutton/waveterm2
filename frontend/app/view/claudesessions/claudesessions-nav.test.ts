@@ -4,13 +4,14 @@
 import { describe, expect, it } from "vitest";
 import {
     buildRows,
+    defaultHarness,
     displayName,
     edgeSelection,
     foldAction,
     formatAge,
     groupKey,
     isHidden,
-    launchKeyAction,
+    launchName,
     moveSelection,
     sessionKey,
     sessionState,
@@ -236,31 +237,16 @@ describe("removed sessions", () => {
     });
 });
 
-describe("launchKeyAction", () => {
-    const both = { claude: true, agy: true };
-    const pick = { cwd: "/p", sessionId: null, label: "p", harness: null };
-    const mode = { ...pick, harness: "claude" };
-
-    it("picks a tool by key and ignores a missing one", () => {
-        expect(launchKeyAction(pick, "c", both)).toEqual({ type: "tool", harness: "claude" });
-        expect(launchKeyAction(pick, "A", both)).toEqual({ type: "tool", harness: "agy" });
-        expect(launchKeyAction(pick, "a", { claude: true, agy: false })).toEqual({ type: "none" });
+describe("launch modal helpers", () => {
+    it("defaults to the first tool that is available", () => {
+        expect(defaultHarness({ claude: true, agy: true })).toBe("claude");
+        expect(defaultHarness({ claude: false, agy: true })).toBe("agy");
+        expect(defaultHarness({})).toBe("claude");
     });
 
-    it("Enter takes the first tool that is available", () => {
-        expect(launchKeyAction(pick, "Enter", { claude: false, agy: true })).toEqual({ type: "tool", harness: "agy" });
-        expect(launchKeyAction(pick, "Enter", { claude: false, agy: false })).toEqual({ type: "none" });
-    });
-
-    it("asks normal or skip permissions; skip is never the default", () => {
-        expect(launchKeyAction(mode, "Enter", both)).toEqual({ type: "launch", skipPermissions: false });
-        expect(launchKeyAction(mode, "n", both)).toEqual({ type: "launch", skipPermissions: false });
-        expect(launchKeyAction(mode, "s", both)).toEqual({ type: "launch", skipPermissions: true });
-        expect(launchKeyAction(mode, "c", both)).toEqual({ type: "none" });
-    });
-
-    it("Escape cancels in both steps", () => {
-        expect(launchKeyAction(pick, "Escape", both)).toEqual({ type: "cancel" });
-        expect(launchKeyAction(mode, "Escape", both)).toEqual({ type: "cancel" });
+    it("sends a name only for a tool that can be named at startup", () => {
+        expect(launchName("claude", "  my work ")).toBe("my work");
+        expect(launchName("claude", "   ")).toBe("");
+        expect(launchName("agy", "my work")).toBe("");
     });
 });

@@ -6,6 +6,7 @@ package claudesessions
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Harness is one coding agent whose sessions the pane lists (Claude Code, Antigravity, ...).
@@ -15,7 +16,7 @@ type Harness interface {
 	Available() bool // the tool's binary is on the PATH
 	Discover() []ClaudeSession
 	PrepareResume(sessionId string, skipPermissions bool) (*ClaudeLaunch, error)
-	PrepareNew(cwd string, skipPermissions bool) (*ClaudeLaunch, error)
+	PrepareNew(cwd string, skipPermissions bool, name string) (*ClaudeLaunch, error) // name "" = none; a tool that cannot be named at startup ignores it
 	RecentPrompts(sessionId string, limit int) ([]ClaudePrompt, error)
 }
 
@@ -39,6 +40,22 @@ func LaunchArgs(args []string, skipPermissions bool) []string {
 		return append(args, SkipPermissionsFlag)
 	}
 	return args
+}
+
+const maxLaunchNameLen = 200
+
+// CleanLaunchName trims a user-typed session name and rejects control characters.
+func CleanLaunchName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if len([]rune(name)) > maxLaunchNameLen {
+		return "", fmt.Errorf("name is longer than %d characters", maxLaunchNameLen)
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("name contains a control character")
+		}
+	}
+	return name, nil
 }
 
 // FindHarness returns the harness with the given name; an empty name means Claude Code.

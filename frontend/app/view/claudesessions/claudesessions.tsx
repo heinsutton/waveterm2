@@ -10,10 +10,12 @@ import * as jotai from "jotai";
 import * as React from "react";
 import { ClaudeSessionsViewModel, PromptsEntry } from "./claudesessions-model";
 import {
+    defaultHarness,
     displayName,
     formatAge,
     HarnessChoices,
     isHidden,
+    launchName,
     LaunchPrompt,
     Row,
     SessionRow,
@@ -62,42 +64,11 @@ function harnessStyle(harness: string): HarnessLook {
     );
 }
 
-function BarButton({
-    hotkey,
-    label,
-    onClick,
-    disabled,
-    title,
-    danger,
-}: {
-    hotkey: string;
-    label: string;
-    onClick: () => void;
-    disabled?: boolean;
-    title?: string;
-    danger?: boolean;
-}) {
-    return (
-        <button
-            type="button"
-            title={title}
-            disabled={disabled}
-            // keep the keyboard focus on the list so the hotkeys keep working after a click
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onClick}
-            className={cn(
-                "shrink-0 px-1 border border-border cursor-pointer hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent",
-                danger && "text-warning"
-            )}
-        >
-            <span className="text-accent">[{hotkey}]</span> {label}
-        </button>
-    );
-}
-
-// One line under the header: which tool, then normal or skip permissions. Skip is never the
-// default and is never remembered.
-function LaunchBar({
+// One modal for everything a launch needs, so a session is created in a single step: the tool
+// (new sessions), an optional name (only tools that can be named at startup), and the
+// skip-permissions checkbox, which is never remembered. Everything works with mouse and keyboard:
+// Tab / arrow keys move, Space toggles, Enter creates, Esc cancels.
+function LaunchModal({
     model,
     prompt,
     available,
@@ -107,67 +78,151 @@ function LaunchBar({
     available: { [harness: string]: boolean };
 }) {
     const resume = prompt.sessionId != null;
+    const [harness, setHarness] = React.useState(() => prompt.harness ?? defaultHarness(available));
+    const [name, setName] = React.useState("");
+    const [skip, setSkip] = React.useState(false);
+    const firstRef = React.useRef<HTMLInputElement>(null);
+    const canName = HarnessChoices.find((c) => c.name === harness)?.canName ?? false;
+    const canCreate = resume || !!available[harness];
+
+    React.useEffect(() => {
+        firstRef.current?.focus();
+    }, []);
+
+    const submit = () => {
+        if (canCreate) {
+            model.confirmLaunch({ harness, name: launchName(harness, name), skipPermissions: skip });
+        }
+    };
+    const onKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            model.cancelLaunch();
+        } else if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
+            e.preventDefault();
+            e.stopPropagation();
+            submit();
+        } else if (!resume && e.target instanceof HTMLInputElement && e.target.type === "radio") {
+            const choice = HarnessChoices.find((c) => c.key === e.key.toLowerCase());
+            if (choice != null && available[choice.name]) {
+                e.preventDefault();
+                setHarness(choice.name);
+            }
+        }
+    };
+    const row = "flex items-center gap-3 leading-6";
+    const label = "w-[8ch] shrink-0 text-muted-foreground";
     return (
         <div
-            className="flex items-center gap-3 px-2 border-b border-border whitespace-nowrap overflow-hidden"
-            style={{ height: RowHeight + 4 }}
+            className="absolute inset-0 flex items-center justify-center bg-background/80 z-10"
+            onClick={() => model.cancelLaunch()}
         >
-            <span className="text-accent shrink-0">{resume ? "resume" : "new session"}</span>
-            {prompt.harness != null ? (
-                <span className={cn("shrink-0", harnessStyle(prompt.harness).className)}>{prompt.harness}</span>
-            ) : null}
-            <span className="flex-1 min-w-0 truncate text-muted-foreground">{prompt.label}</span>
-            {prompt.harness == null ? (
-                HarnessChoices.map((c) => (
-                    <BarButton
-                        key={c.name}
-                        hotkey={c.key}
-                        label={c.label}
-                        disabled={!available[c.name]}
-                        title={available[c.name] ? undefined : `${c.name} was not found on the PATH Bifrost runs with`}
-                        onClick={() => model.chooseLaunchTool(c.name)}
-                    />
-                ))
-            ) : (
-                <>
-                    <BarButton hotkey="n" label="normal" onClick={() => model.confirmLaunch(false)} />
-                    <BarButton
-                        hotkey="s"
-                        label="skip permissions (unsafe)"
-                        danger
-                        title="adds --dangerously-skip-permissions: every tool call is approved without asking"
-                        onClick={() => model.confirmLaunch(true)}
-                    />
-                </>
-            )}
-            <BarButton hotkey="Esc" label="cancel" onClick={() => model.cancelLaunch()} />
+            <div
+                className="border border-accent bg-modalbg px-4 py-3 w-[min(64ch,100%)] max-h-full overflow-auto"
+                role="dialog"
+                aria-label={resume ? "Resume session" : "New session"}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={onKeyDown}
+            >
+                <div className="text-accent">{resume ? "Resume session" : "New session"}</div>
+                <div className="mb-2 truncate text-muted-foreground" title={prompt.label}>
+                    {prompt.label}
+                </div>
+                {resume ? (
+                    <div className={row}>
+                        <span className={label}>tool</span>
+                        <span className={harnessStyle(prompt.harness).className}>
+                            {harnessStyle(prompt.harness).label}
+                        </span>
+                    </div>
+                ) : (
+                    <div className={row} role="radiogroup" aria-label="tool">
+                        <span className={label}>tool</span>
+                        {HarnessChoices.map((c, i) => (
+                            <label
+                                key={c.name}
+                                className={cn(
+                                    "flex items-center gap-1 cursor-pointer",
+                                    !available[c.name] && "opacity-40 cursor-not-allowed"
+                                )}
+                                title={
+                                    available[c.name]
+                                        ? undefined
+                                        : `${c.name} was not found on the PATH Bifrost runs with`
+                                }
+                            >
+                                <input
+                                    ref={i === 0 ? firstRef : undefined}
+                                    type="radio"
+                                    name="launch-tool"
+                                    className="accent-accent"
+                                    checked={harness === c.name}
+                                    disabled={!available[c.name]}
+                                    onChange={() => setHarness(c.name)}
+                                />
+                                <span className={harnessStyle(c.name).className}>{c.label}</span>
+                                <span className="text-muted">({c.key})</span>
+                            </label>
+                        ))}
+                    </div>
+                )}
+                {!resume ? (
+                    <div className={row}>
+                        <label className={label} htmlFor="launch-name">
+                            name
+                        </label>
+                        <input
+                            id="launch-name"
+                            value={canName ? name : ""}
+                            disabled={!canName}
+                            maxLength={200}
+                            onChange={(e) => setName(e.target.value)}
+                            placeholder={
+                                canName ? "optional — leave empty for no name" : "agy cannot be named at startup"
+                            }
+                            className="flex-1 min-w-0 bg-transparent border border-border px-1 outline-none focus:border-accent text-foreground placeholder:text-muted disabled:opacity-50 select-text"
+                            spellCheck={false}
+                        />
+                    </div>
+                ) : null}
+                <div className={row}>
+                    <span className={label}>safety</span>
+                    <label className="flex items-center gap-1 cursor-pointer text-warning">
+                        <input
+                            ref={resume ? firstRef : undefined}
+                            type="checkbox"
+                            className="accent-accent"
+                            checked={skip}
+                            onChange={(e) => setSkip(e.target.checked)}
+                        />
+                        <span>skip permissions (unsafe)</span>
+                    </label>
+                </div>
+                <div className="pl-[calc(8ch+0.75rem)] leading-5 text-muted">
+                    adds --dangerously-skip-permissions: every tool call is approved without asking
+                </div>
+                <div className="mt-3 flex items-center gap-3">
+                    <button
+                        type="button"
+                        disabled={!canCreate}
+                        onClick={submit}
+                        className="px-2 border border-accent text-accent cursor-pointer hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        {resume ? "Resume" : "Create"}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => model.cancelLaunch()}
+                        className="px-2 border border-border cursor-pointer hover:bg-hover"
+                    >
+                        Cancel
+                    </button>
+                    <span className="text-muted">Enter {resume ? "resumes" : "creates"} · Esc cancels</span>
+                </div>
+            </div>
         </div>
     );
-}
-
-// Direct "start <tool> here" entries for the context menus: one normal and one skip-permissions
-// entry per tool, disabled when the tool's binary is missing.
-function newSessionItems(
-    model: ClaudeSessionsViewModel,
-    cwd: string,
-    folderOk: boolean,
-    available: { [harness: string]: boolean }
-): ContextMenuItem[] {
-    const items: ContextMenuItem[] = [];
-    for (const c of HarnessChoices) {
-        const enabled = folderOk && !!available[c.name];
-        items.push({
-            label: `New ${c.label} session`,
-            enabled,
-            click: () => model.newSessionIn(cwd, c.name, false),
-        });
-        items.push({
-            label: `New ${c.label} session (skip permissions)`,
-            enabled,
-            click: () => model.newSessionIn(cwd, c.name, true),
-        });
-    }
-    return items;
 }
 
 const HelpKeys: [string, string][] = [
@@ -175,8 +230,8 @@ const HelpKeys: [string, string][] = [
     ["← →  h l", "close / open folder, jump to folder"],
     ["PgUp PgDn", "move a page"],
     ["Home End  g G", "first / last"],
-    ["Enter  Space", "folder: open / close · session: resume it (asks normal or skip permissions)"],
-    ["n", "new session in the selected folder (asks Claude or agy, then normal or skip permissions)"],
+    ["Enter  Space", "folder: open / close · session: resume it (a dialog offers skip permissions)"],
+    ["n", "new session in the selected folder (pick tool, name, skip permissions, then create)"],
     ["e", "edit the description of the selected session"],
     ["p", "open / close the recent prompts box"],
     ["a", "add (remember) a folder"],
@@ -229,7 +284,6 @@ const GroupLine = React.memo(({ row, selected, home, model }: RowProps & { row: 
                         enabled: row.cwd !== "" && !row.missing,
                         click: () => model.newSessionIn(row.cwd),
                     },
-                    ...newSessionItems(model, row.cwd, row.cwd !== "" && !row.missing, model.availableHarnesses()),
                     { label: "Copy folder", click: () => navigator.clipboard.writeText(row.cwd) },
                     {
                         label: row.collapsed ? "Open folder group" : "Close folder group",
@@ -306,16 +360,10 @@ const SessionLine = React.memo(({ row, selected, last, now, description, model }
                         click: () => model.resumeSession(s),
                     },
                     {
-                        label: "Resume (skip permissions)",
-                        enabled: row.state === "offline",
-                        click: () => model.resumeSession(s, true),
-                    },
-                    {
                         label: "New session in this folder…",
                         enabled: row.cwd !== "",
                         click: () => model.newSessionIn(row.cwd),
                     },
-                    ...newSessionItems(model, row.cwd, row.cwd !== "", model.availableHarnesses()),
                     { label: "Edit description…", click: () => model.openEdit(s) },
                     {
                         label: hidden ? "Put back in the list" : "Remove from the list",
@@ -675,7 +723,6 @@ export const ClaudeSessionsView: React.FC<ViewComponentProps<ClaudeSessionsViewM
                         />
                     </div>
                 ) : null}
-                {launch != null ? <LaunchBar model={model} prompt={launch} available={availableHarnesses} /> : null}
                 {error ? <div className="px-2 py-1 text-error truncate">{error}</div> : null}
                 <div ref={listRef} className="flex-1 min-h-[66px] overflow-y-auto overflow-x-hidden">
                     {data == null && !error ? <div className="px-2 py-2 text-muted-foreground">loading…</div> : null}
@@ -740,6 +787,14 @@ export const ClaudeSessionsView: React.FC<ViewComponentProps<ClaudeSessionsViewM
                             : "↑↓ move · Enter resume · n new · e describe · a add folder · / filter · ? help"}
                     </div>
                 </div>
+                {launch != null ? (
+                    <LaunchModal
+                        key={launch.sessionId ?? launch.cwd}
+                        model={model}
+                        prompt={launch}
+                        available={availableHarnesses}
+                    />
+                ) : null}
                 {helpOpen ? (
                     <div
                         className="absolute inset-0 flex items-center justify-center bg-background/80"

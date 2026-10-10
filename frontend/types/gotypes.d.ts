@@ -354,6 +354,7 @@ declare global {
         sessionid?: string;
         cwd?: string;
         skippermissions?: boolean;
+        name?: string;
     };
 
     // wshrpc.CommandClaudeSessionsPromptsData
