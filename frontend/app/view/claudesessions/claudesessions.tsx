@@ -35,6 +35,9 @@ const StateGlyph: Record<SessionState, StateStyle> = {
 };
 
 // Which tool a session belongs to; new harnesses plug in here.
+// the selected row must beat the harness tints: stronger fill, accent bar and an inset outline
+const SelectedRowClass = "bg-accent/35 border-accent ring-1 ring-inset ring-accent";
+
 type HarnessLook = { label: string; className: string; rowClassName: string };
 
 // rowClassName is a faint background so the tool behind a row is clear at a glance
@@ -100,7 +103,7 @@ const GroupLine = React.memo(({ row, selected, home, model }: RowProps & { row: 
             data-rowkey={row.key}
             className={cn(
                 "flex items-center gap-2 px-2 cursor-pointer border-l-2 whitespace-nowrap",
-                selected ? "bg-highlightbg border-accent" : "border-transparent hover:bg-hover"
+                selected ? SelectedRowClass : "border-transparent hover:bg-hover"
             )}
             style={{ height: RowHeight }}
             onClick={() => {
@@ -172,7 +175,7 @@ const SessionLine = React.memo(({ row, selected, last, now, description, model }
             data-rowkey={row.key}
             className={cn(
                 "flex items-center gap-2 px-2 cursor-pointer border-l-2 whitespace-nowrap",
-                selected ? "bg-highlightbg border-accent" : cn("border-transparent", harness.rowClassName),
+                selected ? SelectedRowClass : cn("border-transparent", harness.rowClassName),
                 hidden && "opacity-50"
             )}
             style={{ height: RowHeight }}
