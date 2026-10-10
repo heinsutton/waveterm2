@@ -29,6 +29,7 @@ export type BuildOpts = {
     filter: string;
     showOffline: boolean;
     showHidden?: boolean;
+    harness?: string; // only this tool's sessions; empty or missing = all
     descriptions: { [key: string]: string };
     folders?: ClaudeFolder[];
     missing?: string[];
@@ -67,6 +68,9 @@ export function buildRows(sessions: ClaudeSession[], opts: BuildOpts): Row[] {
     const groups = new Map<string, SessionRow[]>();
     for (const s of sessions ?? []) {
         const state = sessionState(s);
+        if (opts.harness && s.harness !== opts.harness) {
+            continue;
+        }
         if (state === "offline" && !opts.showOffline) {
             continue;
         }
@@ -252,4 +256,14 @@ export function defaultHarness(available: { [harness: string]: boolean }): strin
 export function launchName(harness: string, typed: string): string {
     const choice = HarnessChoices.find((c) => c.name === harness);
     return choice?.canName ? typed.trim() : "";
+}
+
+// The tool filter cycles all -> each tool in HarnessChoices order -> all.
+export function nextHarnessFilter(current: string): string {
+    const names = HarnessChoices.map((c) => c.name);
+    const i = names.indexOf(current);
+    if (current === "" || i < 0) {
+        return names[0];
+    }
+    return i + 1 < names.length ? names[i + 1] : "";
 }

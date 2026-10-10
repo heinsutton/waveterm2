@@ -241,6 +241,7 @@ const HelpKeys: [string, string][] = [
     ["H", "show / hide removed sessions (d on one puts it back)"],
     ["/", "filter (Esc clears)"],
     ["o", "show / hide offline sessions"],
+    ["t", "filter by tool: all → claude → agy → all (the header chips work too)"],
     ["?", "this help"],
     ["mouse", "click selects · double-click resumes · click a folder to fold · right-click for actions"],
 ];
@@ -532,6 +533,7 @@ export const ClaudeSessionsView: React.FC<ViewComponentProps<ClaudeSessionsViewM
         const filter = jotai.useAtomValue(model.filterAtom);
         const filterOpen = jotai.useAtomValue(model.filterOpenAtom);
         const showOffline = jotai.useAtomValue(model.showOfflineAtom);
+        const harnessFilter = jotai.useAtomValue(model.harnessFilterAtom);
         const helpOpen = jotai.useAtomValue(model.helpOpenAtom);
         const addOpen = jotai.useAtomValue(model.addOpenAtom);
         const addValue = jotai.useAtomValue(model.addValueAtom);
@@ -633,6 +635,30 @@ export const ClaudeSessionsView: React.FC<ViewComponentProps<ClaudeSessionsViewM
                     ) : null}
                     {!showOffline ? <span className="text-attention">offline hidden</span> : null}
                     <span className="flex-1" />
+                    <span className="flex items-center gap-2" title="filter by tool (t)">
+                        {["", ...HarnessChoices.map((c) => c.name)].map((name) => {
+                            const active = harnessFilter === name;
+                            const count =
+                                name === "" ? sessions.length : sessions.filter((s) => s.harness === name).length;
+                            return (
+                                <span
+                                    key={name || "all"}
+                                    onClick={() => model.setHarnessFilter(name)}
+                                    className={cn(
+                                        "cursor-pointer px-1 border",
+                                        active
+                                            ? cn(
+                                                  "border-current",
+                                                  name === "" ? "text-accent" : harnessStyle(name).className
+                                              )
+                                            : "border-transparent text-muted hover:text-foreground"
+                                    )}
+                                >
+                                    {name === "" ? "all" : harnessStyle(name).label} {count}
+                                </span>
+                            );
+                        })}
+                    </span>
                     <span
                         className="text-accent cursor-pointer hover:text-accenthover"
                         onClick={() => model.openAdd()}
@@ -729,7 +755,9 @@ export const ClaudeSessionsView: React.FC<ViewComponentProps<ClaudeSessionsViewM
                     {data == null && !error ? <div className="px-2 py-2 text-muted-foreground">loading…</div> : null}
                     {data != null && rows.length === 0 ? (
                         <div className="px-2 py-2 text-muted-foreground">
-                            {filter !== "" ? "no sessions match the filter" : "no sessions found"}
+                            {filter !== "" || harnessFilter !== ""
+                                ? "no sessions match the filter"
+                                : "no sessions found"}
                         </div>
                     ) : null}
                     {rows.map((row, i) => {

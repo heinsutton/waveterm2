@@ -16,11 +16,13 @@ import {
     foldAction,
     groupKey,
     harnessChoiceLabel,
+    HarnessChoices,
     indexOfKey,
     isHidden,
     LaunchChoice,
     LaunchPrompt,
     moveSelection,
+    nextHarnessFilter,
     Row,
     sessionKey,
     sessionState,
@@ -43,6 +45,7 @@ const DefaultPageSize = 10;
 const MessageMs = 5000;
 
 const ShowOfflineStorageKey = "claudesessions:showoffline";
+const HarnessFilterStorageKey = "claudesessions:harness";
 const PromptLimit = 5;
 
 export type StatusMessage = { text: string; isError: boolean };
@@ -67,6 +70,23 @@ function saveShowOffline(show: boolean) {
     }
 }
 
+function loadHarnessFilter(): string {
+    try {
+        const stored = localStorage.getItem(HarnessFilterStorageKey) ?? "";
+        return HarnessChoices.some((c) => c.name === stored) ? stored : "";
+    } catch (_) {
+        return "";
+    }
+}
+
+function saveHarnessFilter(harness: string) {
+    try {
+        localStorage.setItem(HarnessFilterStorageKey, harness);
+    } catch (_) {
+        // storage can be unavailable; the filter then just resets next time
+    }
+}
+
 function isPlain(e: WaveKeyboardEvent, key: string): boolean {
     return e.key === key && !e.control && !e.alt && !e.cmd && !e.meta && !e.option;
 }
@@ -87,6 +107,7 @@ export class ClaudeSessionsViewModel implements ViewModel {
     filterAtom = jotai.atom<string>("");
     filterOpenAtom = jotai.atom<boolean>(false);
     showOfflineAtom = jotai.atom<boolean>(loadShowOffline());
+    harnessFilterAtom = jotai.atom<string>(loadHarnessFilter());
     promptsOpenAtom = jotai.atom<boolean>(false);
     showHiddenAtom = jotai.atom<boolean>(false);
     editAtom = jotai.atom<DescriptionEdit>(null) as jotai.PrimitiveAtom<DescriptionEdit>;
@@ -116,6 +137,7 @@ export class ClaudeSessionsViewModel implements ViewModel {
                 collapsed: get(this.collapsedAtom),
                 filter: get(this.filterAtom),
                 showOffline: get(this.showOfflineAtom),
+                harness: get(this.harnessFilterAtom),
                 showHidden: get(this.showHiddenAtom),
                 descriptions: get(this.dataAtom)?.descriptions ?? {},
                 folders: get(this.dataAtom)?.folders ?? [],
@@ -524,6 +546,16 @@ export class ClaudeSessionsViewModel implements ViewModel {
         saveShowOffline(next);
     }
 
+    setHarnessFilter(harness: string) {
+        globalStore.set(this.harnessFilterAtom, harness);
+        saveHarnessFilter(harness);
+        this.giveFocus();
+    }
+
+    cycleHarnessFilter() {
+        this.setHarnessFilter(nextHarnessFilter(globalStore.get(this.harnessFilterAtom)));
+    }
+
     toggleHelp() {
         globalStore.set(this.helpOpenAtom, !globalStore.get(this.helpOpenAtom));
     }
@@ -591,6 +623,10 @@ export class ClaudeSessionsViewModel implements ViewModel {
         }
         if (isPlain(e, "o")) {
             this.toggleOffline();
+            return true;
+        }
+        if (isPlain(e, "t")) {
+            this.cycleHarnessFilter();
             return true;
         }
         if (isPlain(e, "n")) {

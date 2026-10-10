@@ -13,6 +13,7 @@ import {
     isHidden,
     launchName,
     moveSelection,
+    nextHarnessFilter,
     sessionKey,
     sessionState,
     shortenPath,
@@ -248,5 +249,28 @@ describe("launch modal helpers", () => {
         expect(launchName("claude", "  my work ")).toBe("my work");
         expect(launchName("claude", "   ")).toBe("");
         expect(launchName("agy", "my work")).toBe("");
+    });
+});
+
+describe("tool filter", () => {
+    const base = { collapsed: new Set<string>(), filter: "", showOffline: true, descriptions: {} };
+    const mixed = [mk("c1", "/p", 3), mk("a1", "/p", 2, { harness: "agy" }), mk("a2", "/q", 1, { harness: "agy" })];
+
+    it("keeps only the chosen tool's sessions and drops folders left empty", () => {
+        const ids = (harness: string) =>
+            buildRows(mixed, { ...base, harness })
+                .filter((r) => r.kind === "session")
+                .map((r) => r.key);
+        expect(ids("")).toHaveLength(3);
+        expect(ids("agy")).toEqual([sessionKey("a1"), sessionKey("a2")]);
+        expect(ids("claude")).toEqual([sessionKey("c1")]);
+        expect(buildRows(mixed, { ...base, harness: "claude" }).filter((r) => r.kind === "group")).toHaveLength(1);
+    });
+
+    it("cycles all, claude, agy and back to all", () => {
+        expect(nextHarnessFilter("")).toBe("claude");
+        expect(nextHarnessFilter("claude")).toBe("agy");
+        expect(nextHarnessFilter("agy")).toBe("");
+        expect(nextHarnessFilter("nonsense")).toBe("claude");
     });
 });
