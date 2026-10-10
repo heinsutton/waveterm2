@@ -35,13 +35,26 @@ const StateGlyph: Record<SessionState, StateStyle> = {
 };
 
 // Which tool a session belongs to; new harnesses plug in here.
-const HarnessStyle: { [harness: string]: { label: string; className: string } } = {
-    claude: { label: "claude", className: "text-[#d97757]" },
-    agy: { label: "agy", className: "text-[#4285f4]" },
+type HarnessLook = { label: string; className: string; rowClassName: string };
+
+// rowClassName is a faint background so the tool behind a row is clear at a glance
+const HarnessStyle: { [harness: string]: HarnessLook } = {
+    claude: {
+        label: "claude",
+        className: "text-[#d97757]",
+        rowClassName: "bg-[#d97757]/[0.07] hover:bg-[#d97757]/[0.14]",
+    },
+    agy: { label: "agy", className: "text-[#4285f4]", rowClassName: "bg-[#4285f4]/[0.08] hover:bg-[#4285f4]/[0.15]" },
 };
 
-function harnessStyle(harness: string): { label: string; className: string } {
-    return HarnessStyle[harness] ?? { label: harness || "?", className: "text-muted-foreground" };
+function harnessStyle(harness: string): HarnessLook {
+    return (
+        HarnessStyle[harness] ?? {
+            label: harness || "?",
+            className: "text-muted-foreground",
+            rowClassName: "hover:bg-hover",
+        }
+    );
 }
 
 const HelpKeys: [string, string][] = [
@@ -159,7 +172,7 @@ const SessionLine = React.memo(({ row, selected, last, now, description, model }
             data-rowkey={row.key}
             className={cn(
                 "flex items-center gap-2 px-2 cursor-pointer border-l-2 whitespace-nowrap",
-                selected ? "bg-highlightbg border-accent" : "border-transparent hover:bg-hover",
+                selected ? "bg-highlightbg border-accent" : cn("border-transparent", harness.rowClassName),
                 hidden && "opacity-50"
             )}
             style={{ height: RowHeight }}
