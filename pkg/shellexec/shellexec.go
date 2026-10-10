@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -580,6 +581,18 @@ func StartRemoteShellJob(ctx context.Context, logCtx context.Context, termSize w
 	return jobId, nil
 }
 
+// pathWithDir puts dir first in a PATH value, unless it is already first.
+func pathWithDir(pathEnv string, dir string) string {
+	if pathEnv == "" {
+		return dir
+	}
+	first, _, _ := strings.Cut(pathEnv, string(os.PathListSeparator))
+	if first == dir {
+		return pathEnv
+	}
+	return dir + string(os.PathListSeparator) + pathEnv
+}
+
 func StartLocalShellProc(logCtx context.Context, termSize waveobj.TermSize, cmdStr string, cmdOpts CommandOptsType, connName string) (*ShellProc, error) {
 	if cmdOpts.SwapToken == nil {
 		return nil, fmt.Errorf("SwapToken is required in CommandOptsType")
@@ -646,6 +659,9 @@ func StartLocalShellProc(logCtx context.Context, termSize waveobj.TermSize, cmdS
 				identity[key] = val
 			}
 		}
+		// Likewise the shell init is what puts Bifrost's wsh first on the PATH; hooks of the tool
+		// (wsh claudestate, wsh badge) must find the wsh that belongs to this app.
+		identity["PATH"] = pathWithDir(os.Getenv("PATH"), filepath.Join(wavebase.GetWaveDataDir(), shellutil.WaveHomeBinDir))
 		shellutil.UpdateCmdEnv(ecmd, identity)
 	}
 	jwtToken := cmdOpts.SwapToken.Env[wavebase.WaveJwtTokenVarName]
