@@ -12,6 +12,7 @@ import (
 // Implementations live in their own package or file and must not import wshrpc.
 type Harness interface {
 	Name() string
+	Available() bool // the tool's binary is on the PATH
 	Discover() []ClaudeSession
 	PrepareResume(sessionId string, skipPermissions bool) (*ClaudeLaunch, error)
 	PrepareNew(cwd string, skipPermissions bool) (*ClaudeLaunch, error)
@@ -22,6 +23,12 @@ var _ Harness = (*Provider)(nil)
 
 // Name is the harness key stored in ClaudeSession.Harness.
 func (p *Provider) Name() string { return HarnessClaude }
+
+// Available reports whether the claude binary is on the PATH.
+func (p *Provider) Available() bool {
+	_, err := p.lookPath(claudeBinary)
+	return err == nil
+}
 
 // SkipPermissionsFlag makes both claude and agy approve every tool call without asking.
 const SkipPermissionsFlag = "--dangerously-skip-permissions"

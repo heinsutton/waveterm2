@@ -307,6 +307,12 @@ func (p *Provider) agyPath() (string, error) {
 
 // PrepareResume checks, against fresh data, that a conversation can be resumed and returns the
 // command. A conversation held open by any agy process is refused: two copies must never run.
+// Available reports whether the agy binary is on the PATH.
+func (p *Provider) Available() bool {
+	_, err := p.lookPath(agyBinary)
+	return err == nil
+}
+
 func (p *Provider) PrepareResume(sessionId string, skipPermissions bool) (*cs.ClaudeLaunch, error) {
 	if !cs.IsSessionId(sessionId) {
 		return nil, fmt.Errorf("not a session id: %q", sessionId)

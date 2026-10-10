@@ -54,7 +54,7 @@
     "defwidget@claudesessions": {
         "display:order": 0,
         "icon": "robot",
-        "label": "claude",
+        "label": "agents",
         "blockdef": {
             "meta": {
                 "view": "claudesessions"

@@ -12,7 +12,9 @@ import { ClaudeSessionsViewModel, PromptsEntry } from "./claudesessions-model";
 import {
     displayName,
     formatAge,
+    HarnessChoices,
     isHidden,
+    LaunchPrompt,
     Row,
     SessionRow,
     SessionState,
@@ -60,13 +62,121 @@ function harnessStyle(harness: string): HarnessLook {
     );
 }
 
+function BarButton({
+    hotkey,
+    label,
+    onClick,
+    disabled,
+    title,
+    danger,
+}: {
+    hotkey: string;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    title?: string;
+    danger?: boolean;
+}) {
+    return (
+        <button
+            type="button"
+            title={title}
+            disabled={disabled}
+            // keep the keyboard focus on the list so the hotkeys keep working after a click
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onClick}
+            className={cn(
+                "shrink-0 px-1 border border-border cursor-pointer hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent",
+                danger && "text-warning"
+            )}
+        >
+            <span className="text-accent">[{hotkey}]</span> {label}
+        </button>
+    );
+}
+
+// One line under the header: which tool, then normal or skip permissions. Skip is never the
+// default and is never remembered.
+function LaunchBar({
+    model,
+    prompt,
+    available,
+}: {
+    model: ClaudeSessionsViewModel;
+    prompt: LaunchPrompt;
+    available: { [harness: string]: boolean };
+}) {
+    const resume = prompt.sessionId != null;
+    return (
+        <div
+            className="flex items-center gap-3 px-2 border-b border-border whitespace-nowrap overflow-hidden"
+            style={{ height: RowHeight + 4 }}
+        >
+            <span className="text-accent shrink-0">{resume ? "resume" : "new session"}</span>
+            {prompt.harness != null ? (
+                <span className={cn("shrink-0", harnessStyle(prompt.harness).className)}>{prompt.harness}</span>
+            ) : null}
+            <span className="flex-1 min-w-0 truncate text-muted-foreground">{prompt.label}</span>
+            {prompt.harness == null ? (
+                HarnessChoices.map((c) => (
+                    <BarButton
+                        key={c.name}
+                        hotkey={c.key}
+                        label={c.label}
+                        disabled={!available[c.name]}
+                        title={available[c.name] ? undefined : `${c.name} was not found on the PATH Bifrost runs with`}
+                        onClick={() => model.chooseLaunchTool(c.name)}
+                    />
+                ))
+            ) : (
+                <>
+                    <BarButton hotkey="n" label="normal" onClick={() => model.confirmLaunch(false)} />
+                    <BarButton
+                        hotkey="s"
+                        label="skip permissions (unsafe)"
+                        danger
+                        title="adds --dangerously-skip-permissions: every tool call is approved without asking"
+                        onClick={() => model.confirmLaunch(true)}
+                    />
+                </>
+            )}
+            <BarButton hotkey="Esc" label="cancel" onClick={() => model.cancelLaunch()} />
+        </div>
+    );
+}
+
+// Direct "start <tool> here" entries for the context menus: one normal and one skip-permissions
+// entry per tool, disabled when the tool's binary is missing.
+function newSessionItems(
+    model: ClaudeSessionsViewModel,
+    cwd: string,
+    folderOk: boolean,
+    available: { [harness: string]: boolean }
+): ContextMenuItem[] {
+    const items: ContextMenuItem[] = [];
+    for (const c of HarnessChoices) {
+        const enabled = folderOk && !!available[c.name];
+        items.push({
+            label: `New ${c.label} session`,
+            enabled,
+            click: () => model.newSessionIn(cwd, c.name, false),
+        });
+        items.push({
+            label: `New ${c.label} session (skip permissions)`,
+            enabled,
+            click: () => model.newSessionIn(cwd, c.name, true),
+        });
+    }
+    return items;
+}
+
 const HelpKeys: [string, string][] = [
     ["↑ ↓  j k", "move"],
     ["← →  h l", "close / open folder, jump to folder"],
     ["PgUp PgDn", "move a page"],
     ["Home End  g G", "first / last"],
-    ["Enter  Space", "folder: open / close · session: resume it"],
-    ["n", "new session in the selected folder"],
+    ["Enter  Space", "folder: open / close · session: resume it (asks normal or skip permissions)"],
+    ["n", "new session in the selected folder (asks Claude or agy, then normal or skip permissions)"],
     ["e", "edit the description of the selected session"],
     ["p", "open / close the recent prompts box"],
     ["a", "add (remember) a folder"],
@@ -115,10 +225,11 @@ const GroupLine = React.memo(({ row, selected, home, model }: RowProps & { row: 
                 model.select(row.key);
                 const menu: ContextMenuItem[] = [
                     {
-                        label: "New session here",
+                        label: "New session here…",
                         enabled: row.cwd !== "" && !row.missing,
                         click: () => model.newSessionIn(row.cwd),
                     },
+                    ...newSessionItems(model, row.cwd, row.cwd !== "" && !row.missing, model.availableHarnesses()),
                     { label: "Copy folder", click: () => navigator.clipboard.writeText(row.cwd) },
                     {
                         label: row.collapsed ? "Open folder group" : "Close folder group",
@@ -190,15 +301,21 @@ const SessionLine = React.memo(({ row, selected, last, now, description, model }
                 model.select(row.key);
                 const menu: ContextMenuItem[] = [
                     {
-                        label: "Resume",
+                        label: "Resume…",
                         enabled: row.state === "offline",
                         click: () => model.resumeSession(s),
                     },
                     {
-                        label: "New session in this folder",
+                        label: "Resume (skip permissions)",
+                        enabled: row.state === "offline",
+                        click: () => model.resumeSession(s, true),
+                    },
+                    {
+                        label: "New session in this folder…",
                         enabled: row.cwd !== "",
                         click: () => model.newSessionIn(row.cwd),
                     },
+                    ...newSessionItems(model, row.cwd, row.cwd !== "", model.availableHarnesses()),
                     { label: "Edit description…", click: () => model.openEdit(s) },
                     {
                         label: hidden ? "Put back in the list" : "Remove from the list",
@@ -370,6 +487,14 @@ export const ClaudeSessionsView: React.FC<ViewComponentProps<ClaudeSessionsViewM
         const addOpen = jotai.useAtomValue(model.addOpenAtom);
         const addValue = jotai.useAtomValue(model.addValueAtom);
         const message = jotai.useAtomValue(model.messageAtom);
+        const launch = jotai.useAtomValue(model.launchAtom);
+        const availableHarnesses = React.useMemo(() => {
+            const available: { [harness: string]: boolean } = {};
+            for (const h of data?.harnesses ?? []) {
+                available[h.name] = h.available;
+            }
+            return available;
+        }, [data?.harnesses]);
         const edit = jotai.useAtomValue(model.editAtom);
         const editValue = jotai.useAtomValue(model.editValueAtom);
         const prompts = jotai.useAtomValue(model.promptsAtom);
@@ -550,12 +675,13 @@ export const ClaudeSessionsView: React.FC<ViewComponentProps<ClaudeSessionsViewM
                         />
                     </div>
                 ) : null}
+                {launch != null ? <LaunchBar model={model} prompt={launch} available={availableHarnesses} /> : null}
                 {error ? <div className="px-2 py-1 text-error truncate">{error}</div> : null}
                 <div ref={listRef} className="flex-1 min-h-[66px] overflow-y-auto overflow-x-hidden">
                     {data == null && !error ? <div className="px-2 py-2 text-muted-foreground">loading…</div> : null}
                     {data != null && rows.length === 0 ? (
                         <div className="px-2 py-2 text-muted-foreground">
-                            {filter !== "" ? "no sessions match the filter" : "no Claude Code sessions found"}
+                            {filter !== "" ? "no sessions match the filter" : "no sessions found"}
                         </div>
                     ) : null}
                     {rows.map((row, i) => {
@@ -623,7 +749,7 @@ export const ClaudeSessionsView: React.FC<ViewComponentProps<ClaudeSessionsViewM
                             className="border border-accent bg-modalbg px-4 py-3 max-w-full overflow-auto"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="text-accent mb-2">Claude Sessions — keys</div>
+                            <div className="text-accent mb-2">Agent Sessions — keys</div>
                             {HelpKeys.map(([k, d]) => (
                                 <div key={k} className="flex gap-3 leading-5 whitespace-nowrap">
                                     <span className="w-[16ch] shrink-0 text-accent">{k}</span>

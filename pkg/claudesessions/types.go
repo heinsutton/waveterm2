@@ -36,13 +36,21 @@ type ClaudeFolder struct {
 	Label string `json:"label,omitempty"`
 }
 
+// ClaudeHarnessInfo says which tools the pane can start; a tool whose binary is missing is listed
+// as unavailable so the pane can show it disabled.
+type ClaudeHarnessInfo struct {
+	Name      string `json:"name"`
+	Available bool   `json:"available"`
+}
+
 // ClaudeListResult is what the pane shows: every session plus the user's own folders and descriptions.
 type ClaudeListResult struct {
-	Sessions     []ClaudeSession   `json:"sessions"`
-	Folders      []ClaudeFolder    `json:"folders"`
-	Descriptions map[string]string `json:"descriptions"`
-	Missing      []string          `json:"missing"` // folders (of sessions or remembered) that no longer exist
-	Ts           int64             `json:"ts"`
+	Sessions     []ClaudeSession     `json:"sessions"`
+	Folders      []ClaudeFolder      `json:"folders"`
+	Descriptions map[string]string   `json:"descriptions"`
+	Harnesses    []ClaudeHarnessInfo `json:"harnesses"`
+	Missing      []string            `json:"missing"` // folders (of sessions or remembered) that no longer exist
+	Ts           int64               `json:"ts"`
 }
 
 // ClaudeLaunch is the command a new pane runs to resume a session or start a fresh one.

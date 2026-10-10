@@ -440,6 +440,7 @@ type fakeHarness struct {
 	resumed  []string
 }
 
+func (f *fakeHarness) Available() bool           { return f.name != "missing" }
 func (f *fakeHarness) Name() string              { return f.name }
 func (f *fakeHarness) Discover() []ClaudeSession { return f.sessions }
 func (f *fakeHarness) PrepareNew(cwd string, skip bool) (*ClaudeLaunch, error) {
@@ -485,5 +486,12 @@ func TestFindHarnessDispatch(t *testing.T) {
 	}
 	if _, err := FindHarness(hs, "nope"); err == nil {
 		t.Fatal("unknown harness must error")
+	}
+}
+
+func TestListReportsHarnessAvailability(t *testing.T) {
+	res := List([]Harness{&fakeHarness{name: "a"}, &fakeHarness{name: "missing"}}, t.TempDir())
+	if len(res.Harnesses) != 2 || !res.Harnesses[0].Available || res.Harnesses[1].Available || res.Harnesses[1].Name != "missing" {
+		t.Fatalf("harnesses = %+v", res.Harnesses)
 	}
 }

@@ -71,7 +71,7 @@ export function blockViewToName(view: string): string {
         return "Processes";
     }
     if (view == "claudesessions") {
-        return "Claude Sessions";
+        return "Agent Sessions";
     }
     return view;
 }

@@ -222,3 +222,59 @@ export function isHidden(s: ClaudeSession): boolean {
 export function displayName(s: ClaudeSession): string {
     return s.name ? s.name : s.sessionid;
 }
+
+// The tools a new session can start, in chooser order, with the key that picks each.
+export const HarnessChoices: { name: string; label: string; key: string }[] = [
+    { name: "claude", label: "Claude", key: "c" },
+    { name: "agy", label: "Antigravity (agy)", key: "a" },
+];
+
+export function harnessChoiceLabel(name: string): string {
+    return HarnessChoices.find((c) => c.name === name)?.label ?? name;
+}
+
+// What the one-line launch bar is asking: which tool (new sessions only), then normal or skip
+// permissions. harness null = the tool is not chosen yet.
+export type LaunchPrompt = {
+    cwd: string;
+    sessionId: string | null; // set: resume this session; null: start a new one
+    label: string;
+    harness: string | null;
+};
+
+export type LaunchKeyAction =
+    | { type: "none" }
+    | { type: "cancel" }
+    | { type: "tool"; harness: string }
+    | { type: "launch"; skipPermissions: boolean };
+
+// Maps a key press to what the launch bar does. The bar swallows every key while it is open, so a
+// stray key never moves the list under it.
+export function launchKeyAction(
+    prompt: LaunchPrompt,
+    key: string,
+    available: { [harness: string]: boolean }
+): LaunchKeyAction {
+    if (key === "Escape") {
+        return { type: "cancel" };
+    }
+    const lower = key.toLowerCase();
+    if (prompt.harness == null) {
+        const choice = HarnessChoices.find((c) => c.key === lower);
+        if (choice != null && available[choice.name]) {
+            return { type: "tool", harness: choice.name };
+        }
+        if (key === "Enter") {
+            const first = HarnessChoices.find((c) => available[c.name]);
+            return first != null ? { type: "tool", harness: first.name } : { type: "none" };
+        }
+        return { type: "none" };
+    }
+    if (lower === "n" || key === "Enter") {
+        return { type: "launch", skipPermissions: false };
+    }
+    if (lower === "s") {
+        return { type: "launch", skipPermissions: true };
+    }
+    return { type: "none" };
+}

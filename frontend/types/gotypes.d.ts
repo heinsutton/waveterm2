@@ -215,6 +215,12 @@ declare global {
         label?: string;
     };
 
+    // claudesessions.ClaudeHarnessInfo
+    type ClaudeHarnessInfo = {
+        name: string;
+        available: boolean;
+    };
+
     // claudesessions.ClaudeLaunch
     type ClaudeLaunch = {
         cmd: string;
@@ -227,6 +233,7 @@ declare global {
         sessions: ClaudeSession[];
         folders: ClaudeFolder[];
         descriptions: {[key: string]: string};
+        harnesses: ClaudeHarnessInfo[];
         missing: string[];
         ts: number;
     };

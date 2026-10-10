@@ -10,6 +10,7 @@ import {
     formatAge,
     groupKey,
     isHidden,
+    launchKeyAction,
     moveSelection,
     sessionKey,
     sessionState,
@@ -232,5 +233,34 @@ describe("removed sessions", () => {
     it("drops a folder whose sessions are all removed", () => {
         const rows = buildRows([mk("h", "/gone", 1, { hidden: true })], opts);
         expect(rows).toEqual([]);
+    });
+});
+
+describe("launchKeyAction", () => {
+    const both = { claude: true, agy: true };
+    const pick = { cwd: "/p", sessionId: null, label: "p", harness: null };
+    const mode = { ...pick, harness: "claude" };
+
+    it("picks a tool by key and ignores a missing one", () => {
+        expect(launchKeyAction(pick, "c", both)).toEqual({ type: "tool", harness: "claude" });
+        expect(launchKeyAction(pick, "A", both)).toEqual({ type: "tool", harness: "agy" });
+        expect(launchKeyAction(pick, "a", { claude: true, agy: false })).toEqual({ type: "none" });
+    });
+
+    it("Enter takes the first tool that is available", () => {
+        expect(launchKeyAction(pick, "Enter", { claude: false, agy: true })).toEqual({ type: "tool", harness: "agy" });
+        expect(launchKeyAction(pick, "Enter", { claude: false, agy: false })).toEqual({ type: "none" });
+    });
+
+    it("asks normal or skip permissions; skip is never the default", () => {
+        expect(launchKeyAction(mode, "Enter", both)).toEqual({ type: "launch", skipPermissions: false });
+        expect(launchKeyAction(mode, "n", both)).toEqual({ type: "launch", skipPermissions: false });
+        expect(launchKeyAction(mode, "s", both)).toEqual({ type: "launch", skipPermissions: true });
+        expect(launchKeyAction(mode, "c", both)).toEqual({ type: "none" });
+    });
+
+    it("Escape cancels in both steps", () => {
+        expect(launchKeyAction(pick, "Escape", both)).toEqual({ type: "cancel" });
+        expect(launchKeyAction(mode, "Escape", both)).toEqual({ type: "cancel" });
     });
 });

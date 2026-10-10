@@ -205,5 +205,9 @@ func List(harnesses []Harness, configDir string) *ClaudeListResult {
 	for _, f := range sd.Folders {
 		check(f.Path)
 	}
-	return &ClaudeListResult{Sessions: sessions, Folders: sd.Folders, Descriptions: sd.Descriptions, Missing: missing, Ts: time.Now().UnixMilli()}
+	infos := make([]ClaudeHarnessInfo, 0, len(harnesses))
+	for _, h := range harnesses {
+		infos = append(infos, ClaudeHarnessInfo{Name: h.Name(), Available: h.Available()})
+	}
+	return &ClaudeListResult{Sessions: sessions, Harnesses: infos, Folders: sd.Folders, Descriptions: sd.Descriptions, Missing: missing, Ts: time.Now().UnixMilli()}
 }

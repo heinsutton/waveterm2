@@ -11,11 +11,15 @@ import * as React from "react";
 import { ClaudeSessionsView } from "./claudesessions";
 import {
     buildRows,
+    displayName,
     edgeSelection,
     foldAction,
     groupKey,
+    harnessChoiceLabel,
     indexOfKey,
     isHidden,
+    launchKeyAction,
+    LaunchPrompt,
     moveSelection,
     Row,
     sessionKey,
@@ -73,7 +77,7 @@ export class ClaudeSessionsViewModel implements ViewModel {
     env: ClaudeSessionsEnv;
 
     viewIcon = jotai.atom<string>("robot");
-    viewName = jotai.atom<string>("Claude Sessions");
+    viewName = jotai.atom<string>("Agent Sessions");
     noPadding = jotai.atom<boolean>(true);
 
     dataAtom = jotai.atom<ClaudeListResult>(null) as jotai.PrimitiveAtom<ClaudeListResult>;
@@ -89,6 +93,7 @@ export class ClaudeSessionsViewModel implements ViewModel {
     editValueAtom = jotai.atom<string>("");
     promptsAtom = jotai.atom<{ [sessionId: string]: PromptsEntry }>({});
     helpOpenAtom = jotai.atom<boolean>(false);
+    launchAtom = jotai.atom<LaunchPrompt>(null) as jotai.PrimitiveAtom<LaunchPrompt>;
     addOpenAtom = jotai.atom<boolean>(false);
     addValueAtom = jotai.atom<string>("");
     messageAtom = jotai.atom<StatusMessage>(null) as jotai.PrimitiveAtom<StatusMessage>;
@@ -141,7 +146,7 @@ export class ClaudeSessionsViewModel implements ViewModel {
     }
 
     // The backend re-checks everything right before launch (session not running, folder exists,
-    // claude found), so the pane only turns its answer into a split pane beside this one.
+    // tool found), so the pane only turns its answer into a split pane beside this one.
     async launch(data: CommandClaudeSessionsPrepareData, what: string) {
         try {
             const launch = await this.env.rpc.ClaudeSessionsPrepareCommand(TabRpcClient, data);
@@ -169,23 +174,84 @@ export class ClaudeSessionsViewModel implements ViewModel {
         }
     }
 
-    resumeSession(s: ClaudeSession) {
+    availableHarnesses(): { [harness: string]: boolean } {
+        const available: { [harness: string]: boolean } = {};
+        for (const h of globalStore.get(this.dataAtom)?.harnesses ?? []) {
+            available[h.name] = h.available;
+        }
+        return available;
+    }
+
+    // skipPermissions undefined: ask the user (normal or skip) in the launch bar first; a boolean
+    // launches straight away (the context menu has an entry for each).
+    resumeSession(s: ClaudeSession, skipPermissions?: boolean) {
         const state = sessionState(s);
         if (state === "external") {
             this.showMessage("Already running outside Bifrost, so it can't be resumed here", true);
         } else if (state !== "offline") {
             this.showMessage("Already running in Bifrost", true);
+        } else if (skipPermissions === undefined) {
+            globalStore.set(this.launchAtom, {
+                cwd: s.cwd,
+                sessionId: s.sessionid,
+                label: displayName(s),
+                harness: s.harness,
+            });
         } else {
-            fireAndForget(() => this.launch({ harness: s.harness, sessionid: s.sessionid }, "Resume"));
+            fireAndForget(() =>
+                this.launch({ harness: s.harness, sessionid: s.sessionid, skippermissions: skipPermissions }, "Resume")
+            );
         }
     }
 
-    newSessionIn(cwd: string) {
+    // harness undefined: ask which tool first, then normal or skip permissions.
+    newSessionIn(cwd: string, harness?: string, skipPermissions?: boolean) {
         if (cwd === "") {
             this.showMessage("This session has no known folder", true);
             return;
         }
-        fireAndForget(() => this.launch({ cwd }, "New session"));
+        if (harness === undefined) {
+            globalStore.set(this.launchAtom, { cwd, sessionId: null, label: cwd, harness: null });
+        } else {
+            fireAndForget(() =>
+                this.launch(
+                    { harness, cwd, skippermissions: skipPermissions === true },
+                    `New ${harnessChoiceLabel(harness)} session`
+                )
+            );
+        }
+    }
+
+    cancelLaunch() {
+        globalStore.set(this.launchAtom, null);
+        this.giveFocus();
+    }
+
+    chooseLaunchTool(harness: string) {
+        const prompt = globalStore.get(this.launchAtom);
+        if (prompt != null && this.availableHarnesses()[harness]) {
+            globalStore.set(this.launchAtom, { ...prompt, harness });
+        }
+        this.giveFocus();
+    }
+
+    confirmLaunch(skipPermissions: boolean) {
+        const prompt = globalStore.get(this.launchAtom);
+        if (prompt?.harness == null) {
+            return;
+        }
+        globalStore.set(this.launchAtom, null);
+        this.giveFocus();
+        if (prompt.sessionId != null) {
+            fireAndForget(() =>
+                this.launch(
+                    { harness: prompt.harness, sessionid: prompt.sessionId, skippermissions: skipPermissions },
+                    "Resume"
+                )
+            );
+        } else {
+            this.newSessionIn(prompt.cwd, prompt.harness, skipPermissions);
+        }
     }
 
     openAdd() {
@@ -481,6 +547,18 @@ export class ClaudeSessionsViewModel implements ViewModel {
                 return true;
             }
             return false;
+        }
+        const launchPrompt = globalStore.get(this.launchAtom);
+        if (launchPrompt != null) {
+            const action = launchKeyAction(launchPrompt, e.key, this.availableHarnesses());
+            if (action.type === "cancel") {
+                this.cancelLaunch();
+            } else if (action.type === "tool") {
+                this.chooseLaunchTool(action.harness);
+            } else if (action.type === "launch") {
+                this.confirmLaunch(action.skipPermissions);
+            }
+            return true;
         }
         const rows = globalStore.get(this.rowsAtom);
         switch (e.key) {
