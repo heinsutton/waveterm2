@@ -11,11 +11,12 @@ import {
 import { ConnectionButton } from "@/app/block/connectionbutton";
 import { DurableSessionFlyover } from "@/app/block/durable-session-flyover";
 import { BadgeRune } from "@/app/element/runes";
-import { getBlockBadgeAtom } from "@/app/store/badge";
+import { getBlockBadgeAtom, setBadge } from "@/app/store/badge";
 import { getPaneMoveMenuItems } from "@/app/store/blockmove";
 import {
     createBlockSplitHorizontally,
     createBlockSplitVertically,
+    isDev,
     recordTEvent,
     refocusNode,
     WOS,
@@ -96,6 +97,36 @@ const BlockTitleEditor = ({ blockId, initialTitle, className }: BlockTitleEditor
     );
 };
 
+const DebugNotifyDelayMs = 5000;
+const DebugNotifyKinds: { label: string; icon: string }[] = [
+    { label: "Attention", icon: "bell-exclamation" },
+    { label: "Bell", icon: "bell" },
+    { label: "Done", icon: "check" },
+];
+
+function getDebugNotifyMenuItems(blockId: string): ContextMenuItem[] {
+    const send = (icon: string, delayMs: number) => {
+        setTimeout(() => setBadge(blockId, { icon, priority: 1000 }), delayMs);
+    };
+    return [
+        {
+            label: "Debug: Notify",
+            type: "submenu",
+            submenu: [
+                ...DebugNotifyKinds.map((kind) => ({
+                    label: `${kind.label} now`,
+                    click: () => send(kind.icon, 0),
+                })),
+                { type: "separator" as const },
+                ...DebugNotifyKinds.map((kind) => ({
+                    label: `${kind.label} in ${DebugNotifyDelayMs / 1000}s (switch tab first)`,
+                    click: () => send(kind.icon, DebugNotifyDelayMs),
+                })),
+            ],
+        },
+    ];
+}
+
 function handleHeaderContextMenu(
     e: React.MouseEvent<HTMLDivElement>,
     blockId: string,
@@ -140,6 +171,9 @@ function handleHeaderContextMenu(
     );
     const extraItems = viewModel?.getSettingsMenuItems?.();
     if (extraItems && extraItems.length > 0) menu.push({ type: "separator" }, ...extraItems);
+    if (isDev()) {
+        menu.push({ type: "separator" }, ...getDebugNotifyMenuItems(blockId));
+    }
     menu.push(
         { type: "separator" },
         {
