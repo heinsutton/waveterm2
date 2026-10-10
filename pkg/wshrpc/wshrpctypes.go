@@ -854,6 +854,7 @@ type WaveFileInfo struct {
 
 // SessionId set: resume that session. Otherwise Cwd: start a fresh session in that folder.
 type CommandClaudeSessionsPrepareData struct {
+	Harness   string `json:"harness,omitempty"` // empty = claude
 	SessionId string `json:"sessionid,omitempty"`
 	Cwd       string `json:"cwd,omitempty"`
 }
@@ -869,6 +870,7 @@ type CommandClaudeSessionsHiddenData struct {
 }
 
 type CommandClaudeSessionsPromptsData struct {
+	Harness   string `json:"harness,omitempty"` // empty = claude
 	SessionId string `json:"sessionid"`
 	Limit     int    `json:"limit,omitempty"`
 }

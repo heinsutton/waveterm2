@@ -1496,15 +1496,24 @@ func getClaudeSessionsProvider() *claudesessions.Provider {
 	return claudeSessionsProvider
 }
 
+// getSessionHarnesses lists every harness the sessions pane knows about.
+func getSessionHarnesses() []claudesessions.Harness {
+	return []claudesessions.Harness{getClaudeSessionsProvider()}
+}
+
 func (ws *WshServer) ClaudeSessionsPrepareCommand(ctx context.Context, data wshrpc.CommandClaudeSessionsPrepareData) (*claudesessions.ClaudeLaunch, error) {
+	harness, err := claudesessions.FindHarness(getSessionHarnesses(), data.Harness)
+	if err != nil {
+		return nil, err
+	}
 	if data.SessionId != "" {
-		return getClaudeSessionsProvider().PrepareResume(data.SessionId)
+		return harness.PrepareResume(data.SessionId)
 	}
 	cwd, err := wavebase.ExpandHomeDir(data.Cwd)
 	if err != nil {
 		return nil, err
 	}
-	return getClaudeSessionsProvider().PrepareNew(cwd)
+	return harness.PrepareNew(cwd)
 }
 
 func (ws *WshServer) ClaudeSessionsAddFolderCommand(ctx context.Context, data wshrpc.CommandClaudeSessionsFolderData) (string, error) {
@@ -1524,7 +1533,11 @@ func (ws *WshServer) ClaudeSessionsSetHiddenCommand(ctx context.Context, data ws
 }
 
 func (ws *WshServer) ClaudeSessionsPromptsCommand(ctx context.Context, data wshrpc.CommandClaudeSessionsPromptsData) ([]claudesessions.ClaudePrompt, error) {
-	return getClaudeSessionsProvider().RecentPrompts(data.SessionId, data.Limit)
+	harness, err := claudesessions.FindHarness(getSessionHarnesses(), data.Harness)
+	if err != nil {
+		return nil, err
+	}
+	return harness.RecentPrompts(data.SessionId, data.Limit)
 }
 
 func (ws *WshServer) ClaudeSessionsRemoveFolderCommand(ctx context.Context, data wshrpc.CommandClaudeSessionsFolderData) error {
@@ -1532,7 +1545,7 @@ func (ws *WshServer) ClaudeSessionsRemoveFolderCommand(ctx context.Context, data
 }
 
 func (ws *WshServer) ClaudeSessionsListCommand(ctx context.Context) (*claudesessions.ClaudeListResult, error) {
-	result := claudesessions.List(getClaudeSessionsProvider(), wavebase.GetWaveConfigDir())
+	result := claudesessions.List(getSessionHarnesses(), wavebase.GetWaveConfigDir())
 	blocks, err := wstore.DBGetAllObjsByType[*waveobj.Block](ctx, waveobj.OType_Block)
 	if err != nil {
 		return nil, fmt.Errorf("listing blocks: %w", err)

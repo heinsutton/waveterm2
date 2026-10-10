@@ -177,13 +177,10 @@ func SetHidden(configDir string, sessionId string, hidden bool) error {
 	return saveStore(configDir, sd)
 }
 
-// List returns every session plus the user's folders and descriptions.
-func List(p *Provider, configDir string) *ClaudeListResult {
+// List returns every session of every harness plus the user's folders and descriptions.
+func List(harnesses []Harness, configDir string) *ClaudeListResult {
 	sd := loadStore(configDir)
-	sessions := p.Discover()
-	if sessions == nil {
-		sessions = []ClaudeSession{}
-	}
+	sessions := discoverAll(harnesses)
 	hidden := make(map[string]bool, len(sd.Hidden))
 	for _, id := range sd.Hidden {
 		hidden[id] = true

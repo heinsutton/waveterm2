@@ -176,7 +176,7 @@ export class ClaudeSessionsViewModel implements ViewModel {
         } else if (state !== "offline") {
             this.showMessage("Already running in Bifrost", true);
         } else {
-            fireAndForget(() => this.launch({ sessionid: s.sessionid }, "Resume"));
+            fireAndForget(() => this.launch({ harness: s.harness, sessionid: s.sessionid }, "Resume"));
         }
     }
 
@@ -273,6 +273,7 @@ export class ClaudeSessionsViewModel implements ViewModel {
         let entry: PromptsEntry;
         try {
             const prompts = await this.env.rpc.ClaudeSessionsPromptsCommand(TabRpcClient, {
+                harness: s.harness,
                 sessionid: s.sessionid,
                 limit: PromptLimit,
             });

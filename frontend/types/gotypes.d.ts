@@ -343,12 +343,14 @@ declare global {
 
     // wshrpc.CommandClaudeSessionsPrepareData
     type CommandClaudeSessionsPrepareData = {
+        harness?: string;
         sessionid?: string;
         cwd?: string;
     };
 
     // wshrpc.CommandClaudeSessionsPromptsData
     type CommandClaudeSessionsPromptsData = {
+        harness?: string;
         sessionid: string;
         limit?: number;
     };

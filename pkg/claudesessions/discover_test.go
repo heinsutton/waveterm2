@@ -133,13 +133,13 @@ func TestCacheReusedUntilFileChanges(t *testing.T) {
 func TestListStore(t *testing.T) {
 	cfg := t.TempDir()
 	write(t, filepath.Join(cfg, StoreFileName), `{"folders":[{"path":"/a"}],"descriptions":{"`+idNamed+`":"notes"}}`)
-	res := List(fixture(t), cfg)
+	res := List([]Harness{fixture(t)}, cfg)
 	if len(res.Folders) != 1 || res.Descriptions[idNamed] != "notes" {
 		t.Errorf("store not loaded: %+v", res)
 	}
 	bad := t.TempDir()
 	write(t, filepath.Join(bad, StoreFileName), `{broken`)
-	res = List(fixture(t), bad)
+	res = List([]Harness{fixture(t)}, bad)
 	if res.Folders == nil || res.Descriptions == nil {
 		t.Errorf("damaged store must give empty, non-nil values")
 	}
@@ -324,7 +324,7 @@ func TestFolderStore(t *testing.T) {
 
 func TestListMissing(t *testing.T) {
 	cfg := t.TempDir()
-	res := List(fixture(t), cfg)
+	res := List([]Harness{fixture(t)}, cfg)
 	found := false
 	for _, m := range res.Missing {
 		if m == "/home/x/proj" {
@@ -402,7 +402,7 @@ func TestSetHidden(t *testing.T) {
 	if err := SetDescription(cfg, idLive, "kept"); err != nil {
 		t.Fatal(err)
 	}
-	res := List(fixture(t), cfg)
+	res := List([]Harness{fixture(t)}, cfg)
 	hidden := 0
 	for _, s := range res.Sessions {
 		if s.Hidden {
@@ -423,5 +423,60 @@ func TestSetHidden(t *testing.T) {
 	}
 	if err := SetHidden(cfg, "../x", true); err == nil {
 		t.Errorf("non-uuid id must be refused")
+	}
+}
+
+// fakeHarness is a second harness used to prove merging and per-harness dispatch.
+type fakeHarness struct {
+	name     string
+	sessions []ClaudeSession
+	resumed  []string
+}
+
+func (f *fakeHarness) Name() string              { return f.name }
+func (f *fakeHarness) Discover() []ClaudeSession { return f.sessions }
+func (f *fakeHarness) PrepareNew(cwd string) (*ClaudeLaunch, error) {
+	return &ClaudeLaunch{Cmd: f.name, Cwd: cwd}, nil
+}
+func (f *fakeHarness) PrepareResume(id string) (*ClaudeLaunch, error) {
+	f.resumed = append(f.resumed, id)
+	return &ClaudeLaunch{Cmd: f.name, Args: []string{"--conversation", id}}, nil
+}
+func (f *fakeHarness) RecentPrompts(id string, limit int) ([]ClaudePrompt, error) {
+	return []ClaudePrompt{{Ts: 1, Text: f.name}}, nil
+}
+
+func TestListMergesHarnessesNewestFirst(t *testing.T) {
+	a := &fakeHarness{name: "a", sessions: []ClaudeSession{{Harness: "a", SessionId: "a1", LastActive: 100}, {Harness: "a", SessionId: "a2", LastActive: 10}}}
+	b := &fakeHarness{name: "b", sessions: []ClaudeSession{{Harness: "b", SessionId: "b1", LastActive: 50}}}
+	res := List([]Harness{a, b}, t.TempDir())
+	var ids []string
+	for _, s := range res.Sessions {
+		ids = append(ids, s.SessionId)
+	}
+	if got := strings.Join(ids, ","); got != "a1,b1,a2" {
+		t.Fatalf("order = %s", got)
+	}
+}
+
+func TestFindHarnessDispatch(t *testing.T) {
+	a := &fakeHarness{name: HarnessClaude}
+	b := &fakeHarness{name: "b"}
+	hs := []Harness{a, b}
+	if h, err := FindHarness(hs, ""); err != nil || h != Harness(a) {
+		t.Fatalf("empty name must pick claude, got %v %v", h, err)
+	}
+	h, err := FindHarness(hs, "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.PrepareResume("x"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.resumed) != 0 || len(b.resumed) != 1 {
+		t.Fatalf("resume went to the wrong harness: a=%v b=%v", a.resumed, b.resumed)
+	}
+	if _, err := FindHarness(hs, "nope"); err == nil {
+		t.Fatal("unknown harness must error")
 	}
 }
