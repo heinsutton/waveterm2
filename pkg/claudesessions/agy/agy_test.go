@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	cs "github.com/wavetermdev/waveterm/pkg/claudesessions"
@@ -228,5 +229,87 @@ func TestConversationArg(t *testing.T) {
 	}
 	if got := conversationArg([]string{"agy", "-c"}); got != "" {
 		t.Fatal(got)
+	}
+}
+
+func launchProvider(t *testing.T, live map[string]liveProc) (*Provider, string) {
+	t.Helper()
+	real := t.TempDir()
+	rows := fixtureRows()[:1]
+	rows[0].uris = `["file://` + real + `"]`
+	hist := `{"display":"one","timestamp":1,"conversationId":"` + idNamed + `"}
+{"display":"/config","timestamp":5,"conversationId":"` + idNamed + `","type":"slash_command"}
+{"display":"clear","timestamp":6,"conversationId":"` + idNamed + `"}
+{"display":"two","timestamp":2,"conversationId":"` + idNamed + `"}
+{"display":"other conversation","timestamp":3,"conversationId":"` + idUntitle + `"}
+`
+	p := liveProvider(makeDir(t, rows, hist), live, nil)
+	p.lookPath = func(string) (string, error) { return "/usr/bin/agy", nil }
+	return p, real
+}
+
+func TestPrepareResume(t *testing.T) {
+	p, real := launchProvider(t, map[string]liveProc{})
+	got, err := p.PrepareResume(idNamed, false)
+	if err != nil || got.Cmd != "/usr/bin/agy" || got.Cwd != real || strings.Join(got.Args, " ") != "--conversation "+idNamed {
+		t.Fatalf("resume: %+v %v", got, err)
+	}
+	skipped, err := p.PrepareResume(idNamed, true)
+	if err != nil || strings.Join(skipped.Args, " ") != "--conversation "+idNamed+" "+cs.SkipPermissionsFlag {
+		t.Fatalf("resume with skip permissions: %+v %v", skipped, err)
+	}
+	if _, err := p.PrepareResume("../etc/passwd", false); err == nil {
+		t.Fatal("non-uuid id must be refused")
+	}
+	if _, err := p.PrepareResume(idMulti, false); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("unknown conversation: %v", err)
+	}
+	p.lookPath = func(string) (string, error) { return "", os.ErrNotExist }
+	if _, err := p.PrepareResume(idNamed, false); err == nil || !strings.Contains(err.Error(), "PATH") {
+		t.Fatalf("missing agy binary: %v", err)
+	}
+}
+
+func TestPrepareResumeRefusesRunningAndMissingFolder(t *testing.T) {
+	p, _ := launchProvider(t, map[string]liveProc{idNamed: {Pid: 1}})
+	if _, err := p.PrepareResume(idNamed, false); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("running conversation must be refused: %v", err)
+	}
+	// idBadURI has no folder at all
+	dir := makeDir(t, fixtureRows(), "")
+	q := liveProvider(dir, map[string]liveProc{}, nil)
+	q.lookPath = func(string) (string, error) { return "/usr/bin/agy", nil }
+	if _, err := q.PrepareResume(idBadURI, false); err == nil || !strings.Contains(err.Error(), "folder") {
+		t.Fatalf("missing folder must be refused: %v", err)
+	}
+}
+
+func TestPrepareNew(t *testing.T) {
+	p, real := launchProvider(t, nil)
+	got, err := p.PrepareNew(real, false)
+	if err != nil || got.Cwd != real || len(got.Args) != 0 {
+		t.Fatalf("new: %+v %v", got, err)
+	}
+	if skipped, err := p.PrepareNew(real, true); err != nil || len(skipped.Args) != 1 || skipped.Args[0] != cs.SkipPermissionsFlag {
+		t.Fatalf("new with skip permissions: %+v %v", skipped, err)
+	}
+	for _, bad := range []string{"", "relative", filepath.Join(real, "missing")} {
+		if _, err := p.PrepareNew(bad, false); err == nil {
+			t.Fatalf("%q must be refused", bad)
+		}
+	}
+}
+
+func TestRecentPrompts(t *testing.T) {
+	p, _ := launchProvider(t, nil)
+	got, err := p.RecentPrompts(idNamed, 10)
+	if err != nil || len(got) != 2 || got[0].Text != "two" || got[1].Text != "one" {
+		t.Fatalf("newest first, own conversation only, no noise: %+v %v", got, err)
+	}
+	if got, _ := p.RecentPrompts(idNamed, 1); len(got) != 1 {
+		t.Fatalf("limit: %+v", got)
+	}
+	if _, err := p.RecentPrompts("bad", 5); err == nil {
+		t.Fatal("non-uuid id must be refused")
 	}
 }

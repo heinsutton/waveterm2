@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -27,6 +28,7 @@ const (
 	summariesDBName = "conversation_summaries.db"
 	dbTimeout       = 2000 // ms to wait for agy's write lock
 	previewMaxLen   = 300
+	maxPromptsLimit = 50
 	zeroTimePrefix  = "0001-01-01"
 
 	runStatusRunning   = "CASCADE_RUN_STATUS_RUNNING"
@@ -55,12 +57,13 @@ type Provider struct {
 
 	findLive  func() map[string]liveProc
 	blockOf   func(pid int) string
+	lookPath  func(file string) (string, error)
 	liveAt    time.Time
 	liveCache map[string]liveProc
 }
 
 func MakeProvider(agyDir string) *Provider {
-	return &Provider{dir: agyDir, findLive: findLive, blockOf: cs.BlockOfPid}
+	return &Provider{dir: agyDir, findLive: findLive, blockOf: cs.BlockOfPid, lookPath: exec.LookPath}
 }
 
 var _ cs.Harness = (*Provider)(nil)
@@ -292,16 +295,93 @@ func (p *Provider) Discover() []cs.ClaudeSession {
 	return sessions
 }
 
-func (p *Provider) PrepareResume(sessionId string) (*cs.ClaudeLaunch, error) {
-	return nil, fmt.Errorf("resuming agy sessions is not supported yet")
+const agyBinary = "agy"
+
+func (p *Provider) agyPath() (string, error) {
+	path, err := p.lookPath(agyBinary)
+	if err != nil {
+		return "", fmt.Errorf("%s was not found on the PATH Bifrost runs with", agyBinary)
+	}
+	return path, nil
 }
 
-func (p *Provider) PrepareNew(cwd string) (*cs.ClaudeLaunch, error) {
-	return nil, fmt.Errorf("starting agy sessions is not supported yet")
+// PrepareResume checks, against fresh data, that a conversation can be resumed and returns the
+// command. A conversation held open by any agy process is refused: two copies must never run.
+func (p *Provider) PrepareResume(sessionId string, skipPermissions bool) (*cs.ClaudeLaunch, error) {
+	if !cs.IsSessionId(sessionId) {
+		return nil, fmt.Errorf("not a session id: %q", sessionId)
+	}
+	if _, live := p.findLive()[sessionId]; live {
+		return nil, fmt.Errorf("session is already running")
+	}
+	var found *cs.ClaudeSession
+	for _, s := range p.Discover() {
+		if s.SessionId == sessionId {
+			s := s
+			found = &s
+			break
+		}
+	}
+	if found == nil {
+		return nil, fmt.Errorf("session not found")
+	}
+	cwd, err := cs.CheckFolder(found.Cwd)
+	if err != nil {
+		return nil, err
+	}
+	bin, err := p.agyPath()
+	if err != nil {
+		return nil, err
+	}
+	return &cs.ClaudeLaunch{Cmd: bin, Args: cs.LaunchArgs([]string{"--conversation", sessionId}, skipPermissions), Cwd: cwd}, nil
 }
 
+// PrepareNew returns the command that starts a fresh conversation in a folder.
+func (p *Provider) PrepareNew(cwd string, skipPermissions bool) (*cs.ClaudeLaunch, error) {
+	clean, err := cs.CheckFolder(cwd)
+	if err != nil {
+		return nil, err
+	}
+	bin, err := p.agyPath()
+	if err != nil {
+		return nil, err
+	}
+	return &cs.ClaudeLaunch{Cmd: bin, Args: cs.LaunchArgs([]string{}, skipPermissions), Cwd: clean}, nil
+}
+
+// RecentPrompts returns the newest prompts typed in a conversation, from agy's prompt history.
 func (p *Provider) RecentPrompts(sessionId string, limit int) ([]cs.ClaudePrompt, error) {
-	return []cs.ClaudePrompt{}, nil
+	if !cs.IsSessionId(sessionId) {
+		return nil, fmt.Errorf("not a session id: %q", sessionId)
+	}
+	limit = min(max(limit, 1), maxPromptsLimit)
+	f, err := os.Open(filepath.Join(p.dir, "history.jsonl"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []cs.ClaudePrompt{}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+	prompts := []cs.ClaudePrompt{}
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	for sc.Scan() {
+		var he historyEntry
+		if json.Unmarshal(sc.Bytes(), &he) != nil || he.ConversationId != sessionId || he.Type == "slash_command" {
+			continue
+		}
+		text := clip(he.Display)
+		if text == "" || noisePrompts[text] {
+			continue
+		}
+		prompts = append(prompts, cs.ClaudePrompt{Ts: he.Timestamp, Text: text})
+	}
+	sort.SliceStable(prompts, func(i, j int) bool { return prompts[i].Ts > prompts[j].Ts })
+	if len(prompts) > limit {
+		prompts = prompts[:limit]
+	}
+	return prompts, nil
 }
 
 // applyLive marks the conversations a running agy has open. Busy comes from the summaries run

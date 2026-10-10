@@ -87,8 +87,8 @@ func isDir(path string) bool {
 	return err == nil && fi.IsDir()
 }
 
-// checkFolder accepts only an absolute path of an existing directory, cleaned.
-func checkFolder(path string) (string, error) {
+// CheckFolder accepts only an absolute path of an existing directory, cleaned.
+func CheckFolder(path string) (string, error) {
 	if path == "" || !filepath.IsAbs(path) {
 		return "", fmt.Errorf("folder must be an absolute path: %q", path)
 	}
@@ -101,7 +101,7 @@ func checkFolder(path string) (string, error) {
 
 // AddFolder remembers a directory so it is listed (and can start sessions) even with no sessions.
 func AddFolder(configDir string, path string, label string) (string, error) {
-	clean, err := checkFolder(path)
+	clean, err := CheckFolder(path)
 	if err != nil {
 		return "", err
 	}

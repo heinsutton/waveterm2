@@ -242,24 +242,28 @@ func TestPrepareResume(t *testing.T) {
 	write(t, filepath.Join(p.claudeDir, "projects", "-r", id+".jsonl"), `{"type":"user","cwd":"`+real+`","timestamp":"2026-10-10T10:00:00.000Z"}`+"\n")
 	p.lookPath = func(string) (string, error) { return "/usr/bin/claude", nil }
 
-	got, err := p.PrepareResume(id)
+	got, err := p.PrepareResume(id, false)
 	if err != nil || got.Cmd != "/usr/bin/claude" || got.Cwd != real || len(got.Args) != 2 || got.Args[0] != "-r" || got.Args[1] != id {
 		t.Errorf("resume: %+v %v", got, err)
 	}
-	if _, err := p.PrepareResume(idLive); err == nil || !strings.Contains(err.Error(), "already running") {
+	skipped, err := p.PrepareResume(id, true)
+	if err != nil || strings.Join(skipped.Args, " ") != "-r "+id+" "+SkipPermissionsFlag {
+		t.Errorf("resume with skip permissions: %+v %v", skipped, err)
+	}
+	if _, err := p.PrepareResume(idLive, false); err == nil || !strings.Contains(err.Error(), "already running") {
 		t.Errorf("live session must be refused, got %v", err)
 	}
-	if _, err := p.PrepareResume("../etc/passwd"); err == nil {
+	if _, err := p.PrepareResume("../etc/passwd", false); err == nil {
 		t.Errorf("non-uuid id must be refused")
 	}
-	if _, err := p.PrepareResume("77777777-7777-4777-8777-777777777777"); err == nil || !strings.Contains(err.Error(), "not found") {
+	if _, err := p.PrepareResume("77777777-7777-4777-8777-777777777777", false); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("unknown session must be refused, got %v", err)
 	}
-	if _, err := p.PrepareResume(idNamed); err == nil || !strings.Contains(err.Error(), "folder not found") {
+	if _, err := p.PrepareResume(idNamed, false); err == nil || !strings.Contains(err.Error(), "folder not found") {
 		t.Errorf("missing folder must be refused, got %v", err)
 	}
 	p.lookPath = func(string) (string, error) { return "", os.ErrNotExist }
-	if _, err := p.PrepareResume(id); err == nil || !strings.Contains(err.Error(), "PATH") {
+	if _, err := p.PrepareResume(id, false); err == nil || !strings.Contains(err.Error(), "PATH") {
 		t.Errorf("missing claude binary must be reported, got %v", err)
 	}
 }
@@ -268,12 +272,15 @@ func TestPrepareNew(t *testing.T) {
 	p := fixture(t)
 	p.lookPath = func(string) (string, error) { return "/usr/bin/claude", nil }
 	dir := t.TempDir()
-	got, err := p.PrepareNew(dir)
+	got, err := p.PrepareNew(dir, false)
 	if err != nil || got.Cwd != dir || len(got.Args) != 0 {
 		t.Errorf("new: %+v %v", got, err)
 	}
+	if skipped, err := p.PrepareNew(dir, true); err != nil || len(skipped.Args) != 1 || skipped.Args[0] != SkipPermissionsFlag {
+		t.Errorf("new with skip permissions: %+v %v", skipped, err)
+	}
 	for _, bad := range []string{"", "relative/dir", filepath.Join(dir, "missing")} {
-		if _, err := p.PrepareNew(bad); err == nil {
+		if _, err := p.PrepareNew(bad, false); err == nil {
 			t.Errorf("%q must be refused", bad)
 		}
 	}
@@ -435,10 +442,10 @@ type fakeHarness struct {
 
 func (f *fakeHarness) Name() string              { return f.name }
 func (f *fakeHarness) Discover() []ClaudeSession { return f.sessions }
-func (f *fakeHarness) PrepareNew(cwd string) (*ClaudeLaunch, error) {
+func (f *fakeHarness) PrepareNew(cwd string, skip bool) (*ClaudeLaunch, error) {
 	return &ClaudeLaunch{Cmd: f.name, Cwd: cwd}, nil
 }
-func (f *fakeHarness) PrepareResume(id string) (*ClaudeLaunch, error) {
+func (f *fakeHarness) PrepareResume(id string, skip bool) (*ClaudeLaunch, error) {
 	f.resumed = append(f.resumed, id)
 	return &ClaudeLaunch{Cmd: f.name, Args: []string{"--conversation", id}}, nil
 }
@@ -470,7 +477,7 @@ func TestFindHarnessDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.PrepareResume("x"); err != nil {
+	if _, err := h.PrepareResume("x", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(a.resumed) != 0 || len(b.resumed) != 1 {

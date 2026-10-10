@@ -346,6 +346,7 @@ declare global {
         harness?: string;
         sessionid?: string;
         cwd?: string;
+        skippermissions?: boolean;
     };
 
     // wshrpc.CommandClaudeSessionsPromptsData

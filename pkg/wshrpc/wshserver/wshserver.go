@@ -1513,13 +1513,13 @@ func (ws *WshServer) ClaudeSessionsPrepareCommand(ctx context.Context, data wshr
 		return nil, err
 	}
 	if data.SessionId != "" {
-		return harness.PrepareResume(data.SessionId)
+		return harness.PrepareResume(data.SessionId, data.SkipPermissions)
 	}
 	cwd, err := wavebase.ExpandHomeDir(data.Cwd)
 	if err != nil {
 		return nil, err
 	}
-	return harness.PrepareNew(cwd)
+	return harness.PrepareNew(cwd, data.SkipPermissions)
 }
 
 func (ws *WshServer) ClaudeSessionsAddFolderCommand(ctx context.Context, data wshrpc.CommandClaudeSessionsFolderData) (string, error) {

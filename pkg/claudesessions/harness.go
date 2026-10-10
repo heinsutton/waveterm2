@@ -13,8 +13,8 @@ import (
 type Harness interface {
 	Name() string
 	Discover() []ClaudeSession
-	PrepareResume(sessionId string) (*ClaudeLaunch, error)
-	PrepareNew(cwd string) (*ClaudeLaunch, error)
+	PrepareResume(sessionId string, skipPermissions bool) (*ClaudeLaunch, error)
+	PrepareNew(cwd string, skipPermissions bool) (*ClaudeLaunch, error)
 	RecentPrompts(sessionId string, limit int) ([]ClaudePrompt, error)
 }
 
@@ -22,6 +22,17 @@ var _ Harness = (*Provider)(nil)
 
 // Name is the harness key stored in ClaudeSession.Harness.
 func (p *Provider) Name() string { return HarnessClaude }
+
+// SkipPermissionsFlag makes both claude and agy approve every tool call without asking.
+const SkipPermissionsFlag = "--dangerously-skip-permissions"
+
+// LaunchArgs appends the skip-permissions flag to args when the user chose it.
+func LaunchArgs(args []string, skipPermissions bool) []string {
+	if skipPermissions {
+		return append(args, SkipPermissionsFlag)
+	}
+	return args
+}
 
 // FindHarness returns the harness with the given name; an empty name means Claude Code.
 func FindHarness(harnesses []Harness, name string) (Harness, error) {

@@ -18,7 +18,7 @@ func (p *Provider) claudePath() (string, error) {
 // PrepareResume checks, against fresh data, that a session can be resumed and returns the command.
 // A session that is alive anywhere (Bifrost or another terminal) is refused: two copies of one
 // session must never run.
-func (p *Provider) PrepareResume(sessionId string) (*ClaudeLaunch, error) {
+func (p *Provider) PrepareResume(sessionId string, skipPermissions bool) (*ClaudeLaunch, error) {
 	if !IsSessionId(sessionId) {
 		return nil, fmt.Errorf("not a session id: %q", sessionId)
 	}
@@ -36,7 +36,7 @@ func (p *Provider) PrepareResume(sessionId string) (*ClaudeLaunch, error) {
 	if found == nil {
 		return nil, fmt.Errorf("session not found")
 	}
-	cwd, err := checkFolder(found.Cwd)
+	cwd, err := CheckFolder(found.Cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -44,12 +44,12 @@ func (p *Provider) PrepareResume(sessionId string) (*ClaudeLaunch, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ClaudeLaunch{Cmd: bin, Args: []string{"-r", sessionId}, Cwd: cwd}, nil
+	return &ClaudeLaunch{Cmd: bin, Args: LaunchArgs([]string{"-r", sessionId}, skipPermissions), Cwd: cwd}, nil
 }
 
 // PrepareNew returns the command that starts a fresh session in a folder.
-func (p *Provider) PrepareNew(cwd string) (*ClaudeLaunch, error) {
-	clean, err := checkFolder(cwd)
+func (p *Provider) PrepareNew(cwd string, skipPermissions bool) (*ClaudeLaunch, error) {
+	clean, err := CheckFolder(cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -57,5 +57,5 @@ func (p *Provider) PrepareNew(cwd string) (*ClaudeLaunch, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ClaudeLaunch{Cmd: bin, Args: []string{}, Cwd: clean}, nil
+	return &ClaudeLaunch{Cmd: bin, Args: LaunchArgs([]string{}, skipPermissions), Cwd: clean}, nil
 }
