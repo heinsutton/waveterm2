@@ -72,6 +72,9 @@ func pidAlive(pid int) bool {
 	return err == nil && ok
 }
 
+// BlockOfPid is blockOfPid for other harnesses.
+func BlockOfPid(pid int) string { return blockOfPid(pid) }
+
 // blockOfPid returns the Bifrost block the process was started in: panes put WAVETERM_BLOCKID in
 // the environment, and Claude inherits it from the shell. Empty when it cannot be read or the
 // process was started elsewhere (another terminal).

@@ -28,6 +28,10 @@ const (
 	dbTimeout       = 2000 // ms to wait for agy's write lock
 	previewMaxLen   = 300
 	zeroTimePrefix  = "0001-01-01"
+
+	runStatusRunning   = "CASCADE_RUN_STATUS_RUNNING"
+	runStatusBusy      = "CASCADE_RUN_STATUS_BUSY"
+	runStatusCanceling = "CASCADE_RUN_STATUS_CANCELING"
 )
 
 // bookkeeping lines that say nothing about what a conversation was doing
@@ -36,7 +40,7 @@ var noisePrompts = map[string]bool{"/exit": true, "/clear": true, "clear": true,
 // the columns read from conversation_summaries; a column agy dropped reads as NULL
 var summaryColumns = []string{
 	"conversation_id", "title", "preview", "step_count", "last_modified_time", "last_user_input_time",
-	"workspace_uris", "parent_conversation_id", "nesting_depth", "killed",
+	"workspace_uris", "status", "parent_conversation_id", "nesting_depth", "killed",
 }
 
 // Provider reads agy's data directory (normally ~/.gemini/antigravity-cli).
@@ -48,10 +52,15 @@ type Provider struct {
 	rows       []summaryRow
 	historyKey string
 	history    map[string]historyLine
+
+	findLive  func() map[string]liveProc
+	blockOf   func(pid int) string
+	liveAt    time.Time
+	liveCache map[string]liveProc
 }
 
 func MakeProvider(agyDir string) *Provider {
-	return &Provider{dir: agyDir}
+	return &Provider{dir: agyDir, findLive: findLive, blockOf: cs.BlockOfPid}
 }
 
 var _ cs.Harness = (*Provider)(nil)
@@ -66,6 +75,7 @@ type summaryRow struct {
 	modified  int64 // unix ms, 0 when agy stored the zero time
 	userInput int64
 	cwd       string
+	status    string
 }
 
 type historyLine struct {
@@ -177,8 +187,8 @@ func queryRows(dbPath string) []summaryRow {
 	defer res.Close()
 	out := []summaryRow{}
 	for res.Next() {
-		var id, title, preview, steps, modified, userInput, uris, parent, depth, killed sql.NullString
-		if res.Scan(&id, &title, &preview, &steps, &modified, &userInput, &uris, &parent, &depth, &killed) != nil {
+		var id, title, preview, steps, modified, userInput, uris, status, parent, depth, killed sql.NullString
+		if res.Scan(&id, &title, &preview, &steps, &modified, &userInput, &uris, &status, &parent, &depth, &killed) != nil {
 			continue
 		}
 		if !cs.IsSessionId(id.String) || parent.String != "" || isTrue(killed.String) || (depth.String != "" && depth.String != "0") {
@@ -194,6 +204,7 @@ func queryRows(dbPath string) []summaryRow {
 			modified:  parseTime(modified.String),
 			userInput: parseTime(userInput.String),
 			cwd:       workspaceCwd(uris.String),
+			status:    status.String,
 		})
 	}
 	if res.Err() != nil {
@@ -242,8 +253,8 @@ func clip(s string) string {
 	return s
 }
 
-// Discover lists every conversation that has been used, newest first. All of them are offline
-// here; live detection is layered on top.
+// Discover lists every conversation that has been used, newest first. Conversations a running
+// agy holds open are marked busy or idle; the rest are offline.
 func (p *Provider) Discover() []cs.ClaudeSession {
 	rows := p.loadRows()
 	history := p.readHistory()
@@ -271,6 +282,7 @@ func (p *Provider) Discover() []cs.ClaudeSession {
 			State:      cs.StateOffline,
 		})
 	}
+	sessions = p.applyLive(sessions, rows)
 	sort.Slice(sessions, func(i, j int) bool {
 		if sessions[i].LastActive != sessions[j].LastActive {
 			return sessions[i].LastActive > sessions[j].LastActive
@@ -290,4 +302,41 @@ func (p *Provider) PrepareNew(cwd string) (*cs.ClaudeLaunch, error) {
 
 func (p *Provider) RecentPrompts(sessionId string, limit int) ([]cs.ClaudePrompt, error) {
 	return []cs.ClaudePrompt{}, nil
+}
+
+// applyLive marks the conversations a running agy has open. Busy comes from the summaries run
+// status; a conversation that is not in the database yet (just started) is added from the process.
+func (p *Provider) applyLive(sessions []cs.ClaudeSession, rows []summaryRow) []cs.ClaudeSession {
+	live := p.liveNow()
+	if len(live) == 0 {
+		return sessions
+	}
+	status := make(map[string]string, len(rows))
+	for _, r := range rows {
+		status[r.id] = r.status
+	}
+	index := make(map[string]int, len(sessions))
+	for i, s := range sessions {
+		index[s.SessionId] = i
+	}
+	for id, lp := range live {
+		i, ok := index[id]
+		if !ok {
+			sessions = append(sessions, cs.ClaudeSession{Harness: HarnessName, SessionId: id, Cwd: lp.Cwd, LastActive: time.Now().UnixMilli()})
+			i = len(sessions) - 1
+		}
+		s := &sessions[i]
+		s.Pid = lp.Pid
+		s.BlockId = p.blockOf(lp.Pid)
+		s.External = s.BlockId == ""
+		s.State = cs.StateIdle
+		if st := status[id]; st == runStatusRunning || st == runStatusBusy || st == runStatusCanceling {
+			s.State = cs.StateBusy
+		}
+		s.Status = s.State
+		if s.Cwd == "" {
+			s.Cwd = lp.Cwd
+		}
+	}
+	return sessions
 }

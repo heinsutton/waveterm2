@@ -25,9 +25,9 @@ const (
 )
 
 type row struct {
-	id, title, preview, modified, input, uris, parent string
-	steps, depth                                      int
-	killed                                            bool
+	id, title, preview, modified, input, uris, parent, status string
+	steps, depth                                              int
+	killed                                                    bool
 }
 
 func makeDir(t *testing.T, rows []row, history string) string {
@@ -48,8 +48,8 @@ func makeDir(t *testing.T, rows []row, history string) string {
 		t.Fatal(err)
 	}
 	for _, r := range rows {
-		if _, err := db.Exec(`INSERT INTO conversation_summaries (conversation_id,title,preview,step_count,last_modified_time,workspace_uris,parent_conversation_id,nesting_depth,killed,last_user_input_time) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			r.id, r.title, r.preview, r.steps, r.modified, r.uris, r.parent, r.depth, r.killed, r.input); err != nil {
+		if _, err := db.Exec(`INSERT INTO conversation_summaries (conversation_id,title,preview,step_count,last_modified_time,workspace_uris,parent_conversation_id,nesting_depth,killed,last_user_input_time,status) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			r.id, r.title, r.preview, r.steps, r.modified, r.uris, r.parent, r.depth, r.killed, r.input, r.status); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -152,5 +152,81 @@ func TestDiscoverReloadsWhenDBChanges(t *testing.T) {
 	}
 	if len(p.Discover()) != 2 {
 		t.Fatal("cache must refresh when the database file changes")
+	}
+}
+
+func liveProvider(dir string, live map[string]liveProc, blocks map[int]string) *Provider {
+	p := MakeProvider(dir)
+	p.findLive = func() map[string]liveProc { return live }
+	p.blockOf = func(pid int) string { return blocks[pid] }
+	return p
+}
+
+func TestLiveStates(t *testing.T) {
+	rows := fixtureRows()[:2]
+	rows[0].status = "CASCADE_RUN_STATUS_RUNNING"
+	rows[1].status = "CASCADE_RUN_STATUS_IDLE"
+	dir := makeDir(t, rows, "")
+	live := map[string]liveProc{idNamed: {Pid: 10}, idUntitle: {Pid: 20}}
+	got := map[string]cs.ClaudeSession{}
+	for _, s := range liveProvider(dir, live, map[int]string{10: "block-a"}).Discover() {
+		got[s.SessionId] = s
+	}
+	if s := got[idNamed]; s.State != cs.StateBusy || s.BlockId != "block-a" || s.External || s.Pid != 10 {
+		t.Fatalf("running in a Bifrost pane: %+v", s)
+	}
+	if s := got[idUntitle]; s.State != cs.StateIdle || !s.External || s.BlockId != "" {
+		t.Fatalf("idle outside Bifrost: %+v", s)
+	}
+}
+
+func TestStaleRunStatusWithoutProcessIsOffline(t *testing.T) {
+	rows := fixtureRows()[:1]
+	rows[0].status = "CASCADE_RUN_STATUS_RUNNING"
+	dir := makeDir(t, rows, "")
+	got := liveProvider(dir, map[string]liveProc{}, nil).Discover()
+	if len(got) != 1 || got[0].State != cs.StateOffline || got[0].Pid != 0 {
+		t.Fatalf("a dead process must read offline whatever agy last stored: %+v", got)
+	}
+}
+
+func TestLiveConversationNotInDatabaseYet(t *testing.T) {
+	dir := makeDir(t, fixtureRows()[:1], "")
+	live := map[string]liveProc{idMulti: {Pid: 30, Cwd: "/home/me/new"}}
+	var found *cs.ClaudeSession
+	for _, s := range liveProvider(dir, live, map[int]string{30: "b"}).Discover() {
+		if s.SessionId == idMulti {
+			s := s
+			found = &s
+		}
+	}
+	if found == nil || found.State != cs.StateIdle || found.Cwd != "/home/me/new" || found.BlockId != "b" {
+		t.Fatalf("got %+v", found)
+	}
+}
+
+func TestLockConversationId(t *testing.T) {
+	cases := map[string]string{
+		"/home/me/.gemini/antigravity-cli/presence/" + idNamed + ".lock":    idNamed,
+		"/home/me/.gemini/antigravity-cli/conversations/" + idNamed + ".db": "",
+		"/home/me/other/" + idNamed + ".lock":                               "",
+		"/x/presence/not-an-id.lock":                                        "",
+	}
+	for path, want := range cases {
+		if got := lockConversationId(path); got != want {
+			t.Errorf("%s = %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestConversationArg(t *testing.T) {
+	if got := conversationArg([]string{"agy", "--conversation", idNamed}); got != idNamed {
+		t.Fatal(got)
+	}
+	if got := conversationArg([]string{"agy", "--conversation=" + idNamed}); got != idNamed {
+		t.Fatal(got)
+	}
+	if got := conversationArg([]string{"agy", "-c"}); got != "" {
+		t.Fatal(got)
 	}
 }
