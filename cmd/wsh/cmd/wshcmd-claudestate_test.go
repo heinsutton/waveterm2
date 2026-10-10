@@ -28,3 +28,20 @@ func TestClaudeStateForHook(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeStateFlagAndSessionId(t *testing.T) {
+	for _, ok := range []string{"", "busy", "idle", "waiting", "clear"} {
+		if _, err := claudeStateFromFlag(ok); err != nil {
+			t.Errorf("%q must be accepted: %v", ok, err)
+		}
+	}
+	if _, err := claudeStateFromFlag("running"); err == nil {
+		t.Error("an unknown state must be refused")
+	}
+	if got := (claudeHookInput{SessionId: "a", ConversationId: "b"}).sessionIdOf(); got != "a" {
+		t.Errorf("session_id wins, got %q", got)
+	}
+	if got := (claudeHookInput{ConversationId: "b"}).sessionIdOf(); got != "b" {
+		t.Errorf("agy conversationId, got %q", got)
+	}
+}

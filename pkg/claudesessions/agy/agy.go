@@ -399,8 +399,10 @@ func (p *Provider) applyLive(sessions []cs.ClaudeSession, rows []summaryRow) []c
 		return sessions
 	}
 	status := make(map[string]string, len(rows))
+	modified := make(map[string]int64, len(rows))
 	for _, r := range rows {
 		status[r.id] = r.status
+		modified[r.id] = r.modified
 	}
 	index := make(map[string]int, len(sessions))
 	for i, s := range sessions {
@@ -421,6 +423,7 @@ func (p *Provider) applyLive(sessions []cs.ClaudeSession, rows []summaryRow) []c
 			s.State = cs.StateBusy
 		}
 		s.Status = s.State
+		s.StatusTs = modified[id] // lets a newer idle in the database beat a stale busy hook
 		if s.Cwd == "" {
 			s.Cwd = lp.Cwd
 		}

@@ -285,6 +285,14 @@ It reads the hook's JSON from stdin, so it takes no arguments. Add it to the `Us
 
 The state is stored in the block metadata keys `claude:session`, `claude:state` and `claude:statets`. `SessionEnd` clears them.
 
+Antigravity (`agy`) hooks carry no event name, so pass the state yourself with `--state busy|idle|waiting|clear`. The session id is then read from the hook's `conversationId`:
+
+```sh
+wsh claudestate --state busy
+```
+
+In `~/.gemini/config/hooks.json` use it on `PreInvocation` and `PostToolUse` (`busy`), `PreToolUse` with matcher `ask_question` (`waiting`, and print `{"decision": "allow"}` or the tool call is denied) and `Stop` (`idle`). Every agy hook command must print a JSON object, for example `wsh claudestate --state busy 2>/dev/null || true; echo '{}'`.
+
 ---
 
 ## badge

@@ -316,3 +316,26 @@ func TestRecentPrompts(t *testing.T) {
 		t.Fatal("non-uuid id must be refused")
 	}
 }
+
+func TestHookStateAppliesToAgyRows(t *testing.T) {
+	rows := fixtureRows()[:1]
+	rows[0].status = "CASCADE_RUN_STATUS_IDLE"
+	dir := makeDir(t, rows, "")
+	sessions := liveProvider(dir, map[string]liveProc{idNamed: {Pid: 10}}, map[int]string{10: "block-a"}).Discover()
+	modified := sessions[0].StatusTs
+	if modified == 0 {
+		t.Fatal("a live agy row must carry the database modified time as its status time")
+	}
+	// a hook that ran after the database last changed wins
+	fresh := append([]cs.ClaudeSession(nil), sessions...)
+	cs.ApplyBlockStates(fresh, []cs.BlockClaude{{BlockId: "block-a", SessionId: idNamed, State: cs.StateWaiting, Ts: modified + 1000}})
+	if fresh[0].State != cs.StateWaiting {
+		t.Fatalf("fresh waiting hook must show, got %s", fresh[0].State)
+	}
+	// a stale busy hook must not beat a newer idle in the database
+	stale := append([]cs.ClaudeSession(nil), sessions...)
+	cs.ApplyBlockStates(stale, []cs.BlockClaude{{BlockId: "block-a", SessionId: idNamed, State: cs.StateBusy, Ts: modified - 1000}})
+	if stale[0].State != cs.StateIdle {
+		t.Fatalf("stale busy hook must lose to a newer idle, got %s", stale[0].State)
+	}
+}

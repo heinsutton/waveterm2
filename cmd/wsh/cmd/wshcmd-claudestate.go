@@ -31,15 +31,21 @@ var claudeStateCmd = &cobra.Command{
 block with the session id and its state (busy, idle or waiting for input), which the Claude Sessions
 view shows. Add it to the UserPromptSubmit, PreToolUse (matcher AskUserQuestion), PostToolUse,
 Notification (matchers permission_prompt and elicitation_dialog), Stop, SessionStart and SessionEnd
-hooks.`,
+hooks.
+
+Tools whose hook input has no event name (Antigravity's agy) pass the state explicitly with
+--state busy|idle|waiting|clear; the session id is then read from "conversationId".`,
 	Args:                  cobra.NoArgs,
 	RunE:                  claudeStateRun,
 	PreRunE:               preRunSetupRpcClient,
 	DisableFlagsInUseLine: true,
 }
 
+var claudeStateFlag string
+
 func init() {
 	rootCmd.AddCommand(claudeStateCmd)
+	claudeStateCmd.Flags().StringVar(&claudeStateFlag, "state", "", "set this state (busy, idle, waiting or clear) instead of deriving it from the hook event")
 }
 
 type claudeHookInput struct {
@@ -47,6 +53,24 @@ type claudeHookInput struct {
 	SessionId        string `json:"session_id"`
 	ToolName         string `json:"tool_name"`
 	NotificationType string `json:"notification_type"`
+	ConversationId   string `json:"conversationId"` // Antigravity's name for the session id
+}
+
+// claudeStateFromFlag validates --state; "" means derive the state from the hook event.
+func claudeStateFromFlag(flag string) (string, error) {
+	switch flag {
+	case "", claudeStateBusy, claudeStateIdle, claudeStateWaiting, claudeStateClear:
+		return flag, nil
+	}
+	return "", fmt.Errorf("--state must be busy, idle, waiting or clear (got %q)", flag)
+}
+
+// sessionIdOf returns the session id from either tool's hook input.
+func (in claudeHookInput) sessionIdOf() string {
+	if in.SessionId != "" {
+		return in.SessionId
+	}
+	return in.ConversationId
 }
 
 // claudeStateForHook maps a hook event to a session state; "" means the event does not change it.
@@ -84,8 +108,15 @@ func claudeStateRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err := json.Unmarshal(data, &in); err != nil {
 		return fmt.Errorf("parsing hook input: %v", err)
 	}
-	state := claudeStateForHook(in)
-	if state == "" || in.SessionId == "" {
+	state, err := claudeStateFromFlag(claudeStateFlag)
+	if err != nil {
+		return err
+	}
+	if state == "" {
+		state = claudeStateForHook(in)
+	}
+	sessionId := in.sessionIdOf()
+	if state == "" || sessionId == "" {
 		return nil
 	}
 	oref, err := resolveBlockArg()
@@ -108,11 +139,11 @@ func claudeStateRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		meta = waveobj.MetaMapType{waveobj.MetaKey_ClaudeSession: nil, waveobj.MetaKey_ClaudeState: nil, waveobj.MetaKey_ClaudeStateTs: nil}
 	} else {
 		// Tool hooks fire constantly; skip the write when nothing changed.
-		if cur.GetString(waveobj.MetaKey_ClaudeSession, "") == in.SessionId && cur.GetString(waveobj.MetaKey_ClaudeState, "") == state {
+		if cur.GetString(waveobj.MetaKey_ClaudeSession, "") == sessionId && cur.GetString(waveobj.MetaKey_ClaudeState, "") == state {
 			return nil
 		}
 		meta = waveobj.MetaMapType{
-			waveobj.MetaKey_ClaudeSession: in.SessionId,
+			waveobj.MetaKey_ClaudeSession: sessionId,
 			waveobj.MetaKey_ClaudeState:   state,
 			waveobj.MetaKey_ClaudeStateTs: time.Now().UnixMilli(),
 		}
