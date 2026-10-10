@@ -4,6 +4,9 @@
 package agy
 
 import (
+	"database/sql"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -119,4 +122,32 @@ func (p *Provider) liveNow() map[string]liveProc {
 	p.liveCache, p.liveAt = live, time.Now()
 	p.lock.Unlock()
 	return live
+}
+
+const (
+	// Seen by watching a conversation while a permission prompt was open: the tool-call step
+	// (type 132) sits at status 9 for as long as agy waits for the user, then turns 3 (done).
+	stepTypeToolCall     = 132
+	stepStatusAwaiting   = 9
+	conversationsDirName = "conversations"
+)
+
+// stepAwaitsApproval reports whether the newest step of a conversation is a tool call waiting for
+// the user (a permission prompt or a question). Any problem reading the file reads as "no".
+func (p *Provider) stepAwaitsApproval(id string) bool {
+	path := filepath.Join(p.dir, conversationsDirName, id+".db")
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro&_busy_timeout=%d", path, dbTimeout))
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	var stepType, status int
+	if db.QueryRow("SELECT step_type, status FROM steps ORDER BY idx DESC LIMIT 1").Scan(&stepType, &status) != nil {
+		return false
+	}
+	return stepType == stepTypeToolCall && status == stepStatusAwaiting
 }

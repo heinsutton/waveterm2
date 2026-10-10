@@ -42,6 +42,9 @@ func ApplyBlockStates(sessions []ClaudeSession, blocks []BlockClaude) {
 		if s.Status == StateIdle && s.StatusTs > b.Ts && b.State != StateIdle {
 			continue
 		}
+		if s.State == StateWaiting && b.State == StateBusy {
+			continue // the provider saw the session waiting right now; a busy hook is older news
+		}
 		s.State = b.State
 	}
 }

@@ -75,7 +75,7 @@ func fixtureRows() []row {
 
 func TestDiscoverMapsRows(t *testing.T) {
 	dir := makeDir(t, fixtureRows(), "")
-	got := MakeProvider(dir).Discover()
+	got := testProvider(dir).Discover()
 	byId := map[string]cs.ClaudeSession{}
 	for _, s := range got {
 		byId[s.SessionId] = s
@@ -109,7 +109,7 @@ func TestDiscoverUsesHistoryForPreviewAndTime(t *testing.T) {
 not json
 `
 	dir := makeDir(t, fixtureRows(), hist)
-	for _, s := range MakeProvider(dir).Discover() {
+	for _, s := range testProvider(dir).Discover() {
 		if s.SessionId == idUntitle && s.Preview != "latest prompt" {
 			t.Fatalf("preview = %q", s.Preview)
 		}
@@ -117,12 +117,12 @@ not json
 }
 
 func TestDiscoverMissingOrDamagedDB(t *testing.T) {
-	if got := MakeProvider(t.TempDir()).Discover(); len(got) != 0 {
+	if got := testProvider(t.TempDir()).Discover(); len(got) != 0 {
 		t.Fatalf("missing db: %+v", got)
 	}
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, summariesDBName), []byte("this is not sqlite"), 0o644)
-	if got := MakeProvider(dir).Discover(); len(got) != 0 {
+	if got := testProvider(dir).Discover(); len(got) != 0 {
 		t.Fatalf("damaged db: %+v", got)
 	}
 }
@@ -133,7 +133,7 @@ func TestDiscoverToleratesMissingColumns(t *testing.T) {
 	defer db.Close()
 	db.Exec(`CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, title TEXT, last_modified_time datetime, workspace_uris TEXT)`)
 	db.Exec(`INSERT INTO conversation_summaries VALUES (?,?,?,?)`, idNamed, "Only some columns", "2026-10-10 10:00:00+00:00", `["file:///home/me"]`)
-	got := MakeProvider(dir).Discover()
+	got := testProvider(dir).Discover()
 	if len(got) != 1 || got[0].Name != "Only some columns" || got[0].Cwd != "/home/me" {
 		t.Fatalf("got %+v", got)
 	}
@@ -141,7 +141,7 @@ func TestDiscoverToleratesMissingColumns(t *testing.T) {
 
 func TestDiscoverReloadsWhenDBChanges(t *testing.T) {
 	dir := makeDir(t, fixtureRows()[:1], "")
-	p := MakeProvider(dir)
+	p := testProvider(dir)
 	if len(p.Discover()) != 1 {
 		t.Fatal("first read")
 	}
@@ -156,8 +156,16 @@ func TestDiscoverReloadsWhenDBChanges(t *testing.T) {
 	}
 }
 
-func liveProvider(dir string, live map[string]liveProc, blocks map[int]string) *Provider {
+// testProvider never looks at the real processes of the machine running the tests.
+func testProvider(dir string) *Provider {
 	p := MakeProvider(dir)
+	p.findLive = func() map[string]liveProc { return map[string]liveProc{} }
+	p.blockOf = func(int) string { return "" }
+	return p
+}
+
+func liveProvider(dir string, live map[string]liveProc, blocks map[int]string) *Provider {
+	p := testProvider(dir)
 	p.findLive = func() map[string]liveProc { return live }
 	p.blockOf = func(pid int) string { return blocks[pid] }
 	return p
@@ -337,5 +345,72 @@ func TestHookStateAppliesToAgyRows(t *testing.T) {
 	cs.ApplyBlockStates(stale, []cs.BlockClaude{{BlockId: "block-a", SessionId: idNamed, State: cs.StateBusy, Ts: modified - 1000}})
 	if stale[0].State != cs.StateIdle {
 		t.Fatalf("stale busy hook must lose to a newer idle, got %s", stale[0].State)
+	}
+}
+
+func writeSteps(t *testing.T, dir, id string, steps [][3]int) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, conversationsDirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", "file:"+filepath.Join(dir, conversationsDirName, id+".db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL DEFAULT 0, status INTEGER NOT NULL DEFAULT 0)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range steps {
+		if _, err := db.Exec(`INSERT INTO steps (idx, step_type, status) VALUES (?,?,?)`, s[0], s[1], s[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestStepAwaitsApproval(t *testing.T) {
+	dir := t.TempDir()
+	p := testProvider(dir)
+	writeSteps(t, dir, idNamed, [][3]int{{30, 14, 3}, {31, 15, 3}, {32, 132, 9}})
+	writeSteps(t, dir, idUntitle, [][3]int{{30, 14, 3}, {31, 15, 3}, {32, 132, 3}})
+	writeSteps(t, dir, idSub, [][3]int{{1, 15, 9}}) // a non-tool step at 9 is not an approval wait
+	if !p.stepAwaitsApproval(idNamed) {
+		t.Error("tool call at status 9 must read as waiting")
+	}
+	if p.stepAwaitsApproval(idUntitle) {
+		t.Error("a finished tool call is not waiting")
+	}
+	if p.stepAwaitsApproval(idSub) {
+		t.Error("only a tool-call step counts")
+	}
+	if p.stepAwaitsApproval(idMulti) {
+		t.Error("a missing conversation file reads as not waiting")
+	}
+}
+
+func TestLiveBusyWithPendingApprovalIsWaiting(t *testing.T) {
+	rows := fixtureRows()[:2]
+	rows[0].status = "CASCADE_RUN_STATUS_RUNNING"
+	rows[1].status = "CASCADE_RUN_STATUS_IDLE"
+	dir := makeDir(t, rows, "")
+	p := liveProvider(dir, map[string]liveProc{idNamed: {Pid: 1}, idUntitle: {Pid: 2}}, map[int]string{1: "b1", 2: "b2"})
+	p.awaiting = func(id string) bool { return true }
+	got := map[string]string{}
+	for _, s := range p.Discover() {
+		got[s.SessionId] = s.State
+	}
+	if got[idNamed] != cs.StateWaiting {
+		t.Errorf("running + pending approval = waiting, got %s", got[idNamed])
+	}
+	if got[idUntitle] != cs.StateIdle {
+		t.Errorf("idle stays idle, got %s", got[idUntitle])
+	}
+	// the busy hook that fired when the turn started must not hide the wait
+	sessions := p.Discover()
+	cs.ApplyBlockStates(sessions, []cs.BlockClaude{{BlockId: "b1", SessionId: idNamed, State: cs.StateBusy, Ts: 1 << 50}})
+	for _, s := range sessions {
+		if s.SessionId == idNamed && s.State != cs.StateWaiting {
+			t.Errorf("busy hook must not override a wait seen in the database, got %s", s.State)
+		}
 	}
 }

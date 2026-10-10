@@ -58,12 +58,15 @@ type Provider struct {
 	findLive  func() map[string]liveProc
 	blockOf   func(pid int) string
 	lookPath  func(file string) (string, error)
+	awaiting  func(id string) bool // the conversation's newest step waits for the user's approval
 	liveAt    time.Time
 	liveCache map[string]liveProc
 }
 
 func MakeProvider(agyDir string) *Provider {
-	return &Provider{dir: agyDir, findLive: findLive, blockOf: cs.BlockOfPid, lookPath: exec.LookPath}
+	p := &Provider{dir: agyDir, findLive: findLive, blockOf: cs.BlockOfPid, lookPath: exec.LookPath}
+	p.awaiting = p.stepAwaitsApproval
+	return p
 }
 
 var _ cs.Harness = (*Provider)(nil)
@@ -423,6 +426,9 @@ func (p *Provider) applyLive(sessions []cs.ClaudeSession, rows []summaryRow) []c
 			s.State = cs.StateBusy
 		}
 		s.Status = s.State
+		if s.State == cs.StateBusy && p.awaiting(id) {
+			s.State = cs.StateWaiting
+		}
 		s.StatusTs = modified[id] // lets a newer idle in the database beat a stale busy hook
 		if s.Cwd == "" {
 			s.Cwd = lp.Cwd
