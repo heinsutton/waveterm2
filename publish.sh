@@ -32,6 +32,11 @@ echo "Using node $(node --version)"
 
 step() { printf '\n==> %s\n' "$1"; }
 
+step "Version bump"
+# patch number only; bump major/minor by hand in package.json. --no-git-tag-version leaves package.json and package-lock.json modified for you to commit
+npm version patch --no-git-tag-version >/dev/null
+echo "Version $(node -p "require('./package.json').version")"
+
 rm -rf make
 
 step "Backend (wavesrv, wsh, tsunami scaffold)"
